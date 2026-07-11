@@ -1,0 +1,70 @@
+{% extends "docs/_base.html" %}
+
+{% block title %}{{ integration.name }}{% endblock %}
+{% block meta %}<meta name="description" content="{{ integration.tagline }}">{% endblock %}
+
+{% block breadcrumb %}
+  <a href="/docs/integrations">{{ t("rs.docs.title") }}</a>
+  <span class="text-muted-beige">/</span>
+  <a href="/docs/integrations">{{ t("rs.docs.integrations") }}</a>
+  <span class="text-muted-beige">/</span>
+  <span class="text-muted-beige">{{ integration.name }}</span>
+{% endblock %}
+
+{% block content %}
+  <h1 class="h3 fw-bold mb-1">{{ integration.name }}</h1>
+  <p class="text-muted-beige mb-4">{{ integration.tagline }}</p>
+
+  <!-- Install -->
+  <h2 class="h5 fw-bold mb-2">{{ t("rs.docs.install") }}</h2>
+  <ol class="mb-3">
+    {% for step in integration.steps %}
+    <li class="mb-1">{{ step }}</li>
+    {% endfor %}
+  </ol>
+
+  <p class="small text-muted-beige mb-2">{{ integration.config_note }}</p>
+  <div class="rs-code mb-3">
+    <button class="rs-copy btn btn-rs btn-sm" type="button"
+            data-umami-event="{docs copy config - {{ integration.slug }}}">{{ t("rs.docs.copy") }}</button>
+    <pre><code>{{ integration.config_json }}</code></pre>
+  </div>
+
+  <div class="rs-callout small mb-4">{{ t("rs.docs.secret_callout") }}</div>
+
+  {% if integration.show_header_alt %}
+  <h2 class="h5 fw-bold mb-2">{{ t("rs.docs.alt_heading") }}</h2>
+  <p class="text-muted-beige mb-2">{{ t("rs.docs.alt_note") }}</p>
+  <div class="rs-code mb-4">
+    <button class="rs-copy btn btn-rs btn-sm" type="button"
+            data-umami-event="{docs copy header config - {{ integration.slug }}}">{{ t("rs.docs.copy") }}</button>
+    <pre><code>{{ integration.header_config_json }}</code></pre>
+  </div>
+  {% endif %}
+
+  <!-- Using it -->
+  <h2 class="h5 fw-bold mb-2">{{ t("rs.docs.using") }}</h2>
+  <p class="text-muted-beige mb-4">{{ integration.usage }}</p>
+
+  <!-- Tips -->
+  {% if integration.tips %}
+  <h2 class="h5 fw-bold mb-2">{{ t("rs.docs.tips") }}</h2>
+  <ul class="text-muted-beige mb-4">
+    {% for tip in integration.tips %}
+    <li class="mb-1">{{ tip }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <!-- Related -->
+  {% if integration.related %}
+  <div class="pt-3 border-top border-secondary border-opacity-25">
+    <span class="rs-side-heading">{{ t("rs.docs.related") }}</span>
+    <div class="mt-2">
+      {% for href, label in integration.related %}
+      <a class="me-3" href="{{ href }}">{{ label }} &rarr;</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+{% endblock %}

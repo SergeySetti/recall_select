@@ -1,0 +1,56 @@
+### recall.select - Memory store & recall
+# Self-contained: creates a user + project, stores memories, then recalls them.
+# Storing embeds the text and upserts it into the (user, project) Qdrant collection.
+# (JetBrains HTTP client format.)
+
+@baseUrl = http://localhost:8000
+
+### Setup: create a user
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+    "email": "memory@example.com"
+}
+
+> {%
+    client.global.set("userId", response.body.id);
+%}
+
+### Setup: create a project
+POST {{baseUrl}}/api/users/{{userId}}/projects
+Content-Type: application/json
+
+{
+    "name": "default"
+}
+
+> {%
+    client.global.set("projectId", response.body.id);
+%}
+
+### Store a memory -> 201 (collection auto-provisioned on first write)
+POST {{baseUrl}}/api/users/{{userId}}/projects/{{projectId}}/memories
+Content-Type: application/json
+
+{
+    "text": "The user prefers dark mode and terse answers.",
+    "metadata": { "tag": "preference" }
+}
+
+### Store another memory
+POST {{baseUrl}}/api/users/{{userId}}/projects/{{projectId}}/memories
+Content-Type: application/json
+
+{
+    "text": "The project ships as Docker containers behind a shared Caddy proxy."
+}
+
+### Recall - nearest memories to a query (closest first)
+POST {{baseUrl}}/api/users/{{userId}}/projects/{{projectId}}/memories/search
+Content-Type: application/json
+
+{
+    "query": "how does the user like their answers?",
+    "limit": 5
+}

@@ -1,0 +1,42 @@
+### recall.select - Collections (one-to-one: user+project <-> Qdrant collection)
+# Self-contained: creates a user and project, then provisions the collection.
+# Registering also creates the backing Qdrant collection named rs_{userId}_{projectId}.
+# (JetBrains HTTP client format.)
+
+@baseUrl = http://localhost:8000
+
+### Setup: create a user
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+    "email": "collections@example.com"
+}
+
+> {%
+    client.global.set("userId", response.body.id);
+%}
+
+### Setup: create a project
+POST {{baseUrl}}/api/users/{{userId}}/projects
+Content-Type: application/json
+
+{
+    "name": "default"
+}
+
+> {%
+    client.global.set("projectId", response.body.id);
+%}
+
+### Register the collection -> 201, name = rs_{userId}_{projectId}, counters at 0
+POST {{baseUrl}}/api/users/{{userId}}/projects/{{projectId}}/collection
+
+### Re-register is idempotent -> returns the same record (no duplicate)
+POST {{baseUrl}}/api/users/{{userId}}/projects/{{projectId}}/collection
+
+### Get the collection (shows points_count / calls_count for stats & limits)
+GET {{baseUrl}}/api/users/{{userId}}/projects/{{projectId}}/collection
+
+### Delete the collection -> 204 (drops both the Mongo record and Qdrant collection)
+DELETE {{baseUrl}}/api/users/{{userId}}/projects/{{projectId}}/collection

@@ -1,0 +1,28 @@
+# Caddy site block for recall.select - owned by this repo.
+#
+# The shared proxy stack (/home/setti/farm/proxy/) mounts this repo's
+# deploy/caddy/ directory and `import`s the fragment, so routing for
+# recall.select lives here rather than in the central proxy config.
+#
+# `recall-select-web` is reachable by container name on the external caddy_net
+# network (see docker-compose.yml).
+
+recall.select {
+	# The memory link carries the API key in the path (/m/{key}, /m/{key}.md),
+	# so keep those - and the header-auth /mcp endpoint - out of the access log.
+	# The key is a bearer secret; a leak into log files is a real exposure, and
+	# our own edge log is the likeliest place for it to land.
+	@secret path /m/* /mcp
+	log_skip @secret
+
+	reverse_proxy recall-select-web:8000
+}
+
+# Qdrant dashboard. Reachable by container name on caddy_net (the qdrant service
+# joins that network in docker-compose.yml). The dashboard has no auth of its
+# own, so access is gated by Qdrant's own API key (QDRANT__SERVICE__API_KEY) -
+# the web UI prompts for it. Needs a DNS A record for qdrant.recall.select -> the
+# server for Caddy to issue a certificate.
+qdrant.recall.select {
+	reverse_proxy recall-select-qdrant:6333
+}

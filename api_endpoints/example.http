@@ -1,0 +1,18 @@
+GET https://newsapi.org/v2/top-headlines?sources=bbc-news&apiKey=YOUR_NEWSAPI_KEY
+Accept: application/json
+
+###
+
+POST https://api.venice.ai/api/v1/chat/completions
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+
+{
+    "model": "venice-ai",
+    "messages": [
+        {
+            "role": "user",
+            "content": "Hello!"
+        }
+    ]
+}

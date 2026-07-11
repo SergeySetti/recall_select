@@ -1,0 +1,48 @@
+pl:
+  meta:
+    title: recall.select - pamięć długoterminowa dla każdego agenta
+    description: >-
+      Najprostsza możliwa pamięć semantyczna dla agentów AI. Dla każdego z nich.
+      Podaj mu jeden adres URL - to cała konfiguracja. Nie przegap, nie zapomnij.
+  image:
+    alt: Logo recall.select z psem i hasłem „Nie przegap, nie zapomnij”
+  body:
+    headline_pre: "Pamięć "
+    headline_accent: długoterminowa
+    headline_post: " dla każdego agenta AI."
+    lead: Pamięć długoterminowa dla każdego agenta AI. Podaj mu jeden specjalnie utworzony link - to cała konfiguracja.
+    semantic: >-
+      To nie zwykły magazyn danych: pamięć wyszukuje po znaczeniu. Zapisz
+      <span class="rs-accent">„tiramisu”</span>, a agent znajdzie je, pytając o
+      <span class="rs-accent">„ten włoski deser”</span>.
+    slogan_alt: Nie przegap, nie zapomnij
+    signed_in_as: Zalogowano jako %{email}
+    your_account: twoje konto
+    sign_out: Wyloguj się
+    link_label: Twój link do pamięci - przekaż go swojemu agentowi
+    copy_button: Skopiuj link
+    help_signed_in: >-
+      Twój link jest gotowy - kliknij <span class="rs-accent">%{action}</span>,
+      aby go skopiować, a następnie wklej go do swojego agenta. Trzymaj go w
+      tajemnicy; każdy, kto go ma, może korzystać z twojej pamięci.
+    help_signed_out: >-
+      Kliknij <span class="rs-accent">%{action}</span>, aby zalogować się przez
+      Google i otrzymać swój osobisty link.
+    pricing: Cennik
+    language: Język
+  features:
+    private:
+      title: Prywatnie i bezpiecznie
+      desc: Dostęp masz tylko ty i twoi agenci.
+    setup:
+      title: Konfiguracja w jednym linku
+      desc: Dodaj jeden link i gotowe.
+    memory:
+      title: Semantyczna pamięć długoterminowa
+      desc: Nawet po miesiącach „ten, który naprawił zlew” znajdzie numer hydraulika.
+    anywhere:
+      title: Działa wszędzie
+      desc: Z dowolnym LLM lub agentem AI.
+  js:
+    copied: Skopiowano!
+    link_error: Nie udało się utworzyć linku do pamięci. Spróbuj ponownie.

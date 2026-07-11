@@ -1,0 +1,40 @@
+### recall.select - Users
+# Run top-to-bottom: the first request stores its id as a global var for the rest.
+# (JetBrains HTTP client format.)
+
+@baseUrl = http://localhost:8000
+
+### Create a user
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+    "email": "e2e@example.com",
+    "name": "E2E"
+}
+
+> {%
+    client.global.set("userId", response.body.id);
+%}
+
+### Get the user
+GET {{baseUrl}}/api/users/{{userId}}
+
+### Update the user (partial - only sent fields change)
+PATCH {{baseUrl}}/api/users/{{userId}}
+Content-Type: application/json
+
+{
+    "tier": "paid_5x"
+}
+
+### Duplicate email is rejected -> 409
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+    "email": "e2e@example.com"
+}
+
+### Unknown user -> 404
+GET {{baseUrl}}/api/users/does-not-exist

@@ -1,0 +1,80 @@
+services:
+    web:
+        build: .
+        image: recall-select-web
+        container_name: recall-select-web
+        restart: unless-stopped
+        # Fronted by the shared `proxy` stack (Caddy) over the external caddy_net
+        # network; reachable there as recall-select-web:8000. Not published on the
+        # host.
+        expose:
+            - "8000"
+        environment:
+            # Remote embedding API (text -> vector); the only embedding backend.
+            - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:?EMBEDDING_API_KEY must be set}
+            # Reach Qdrant over the internal network only.
+            - QDRANT_URL=http://qdrant:6333
+            # Authenticates every Qdrant request; must equal the qdrant service's
+            # QDRANT__SERVICE__API_KEY below.
+            - QDRANT_API_KEY=${QDRANT_API_KEY:?QDRANT_API_KEY must be set}
+            # Vector dimension for the collections. The remote embedder returns
+            # vectors of exactly this size (via the API's `dimensions` param).
+            - VECTOR_SIZE=${VECTOR_SIZE:-768}
+            # Remote, managed MongoDB. Supplied from the host environment / .env
+            # (never committed) - holds users, API keys, projects, collection stats.
+            - MONGODB_URI=${MONGODB_URI:?MONGODB_URI must be set}
+            - MONGODB_DB=${MONGODB_DB:-recall_select}
+            # Google OAuth + session signing. Supplied from the host / .env.
+            - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID must be set}
+            - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET must be set}
+            - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+            - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-https://recall.select}
+            # Monobank acquiring (checkout + webhook). Required: without the
+            # merchant token every /api/me/checkout is a 503. Redirect/webhook
+            # URLs may stay empty - the app derives them from PUBLIC_BASE_URL.
+            - MONOBANK_API_KEY=${MONOBANK_API_KEY:?MONOBANK_API_KEY must be set}
+            - MONOBANK_REDIRECT_URL=${MONOBANK_REDIRECT_URL:-}
+            - MONOBANK_WEBHOOK_URL=${MONOBANK_WEBHOOK_URL:-}
+            - MONOBANK_WEBHOOK_VERIFY=${MONOBANK_WEBHOOK_VERIFY:-1}
+        depends_on:
+            qdrant:
+                condition: service_started
+        networks:
+            - caddy_net
+            - internal
+        healthcheck:
+            test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" ]
+            interval: 30s
+            timeout: 3s
+            retries: 3
+
+    # Vector database. Every memory instance is a Qdrant collection
+    # (per user per project). Reachable by the web app on the `internal` network
+    # as `qdrant:6333` (HTTP) / `qdrant:6334` (gRPC). The HTTP port is also joined
+    # to `caddy_net` so the shared proxy can front the dashboard at
+    # qdrant.recall.select - protected by the API key below (the dashboard has no
+    # auth of its own). Data persisted in a named volume so it survives restarts.
+    qdrant:
+        image: qdrant/qdrant:v1.12.4
+        container_name: recall-select-qdrant
+        restart: unless-stopped
+        environment:
+            # Every Qdrant request (web app + dashboard) must present this key.
+            - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:?QDRANT_API_KEY must be set}
+        expose:
+            - "6333"
+            - "6334"
+        volumes:
+            - qdrant_storage:/qdrant/storage
+        networks:
+            - internal
+            - caddy_net
+
+networks:
+    caddy_net:
+        external: true
+    internal:
+        driver: bridge
+
+volumes:
+    qdrant_storage:

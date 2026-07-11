@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="{{ locale }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ t("rs.account.title") }} - recall.select</title>
+  <link rel="icon" type="image/png" href="/static/images/logo-dog.png">
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+    crossorigin="anonymous">
+  <style>
+    :root {
+      --rs-bg: #0d0b09;
+      --rs-text: #e8dcc0;
+      --rs-accent: #ff7a1a;
+    }
+    body {
+      background-color: var(--rs-bg);
+      color: var(--rs-text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .rs-accent { color: var(--rs-accent); }
+    a { color: var(--rs-accent); }
+    .text-muted-beige { color: rgba(232, 220, 192, 0.6) !important; }
+    .btn-rs {
+      background-color: var(--rs-accent);
+      border-color: var(--rs-accent);
+      color: var(--rs-bg);
+      font-weight: 600;
+    }
+    .btn-rs:hover { background-color: #ff8c3d; border-color: #ff8c3d; color: var(--rs-bg); }
+    .btn-rs:disabled { opacity: 0.7; }
+    /* Cards + table on the dark theme. */
+    .rs-card {
+      background: rgba(255, 122, 26, 0.05);
+      border: 1px solid rgba(232, 220, 192, 0.15);
+      border-radius: 0.75rem;
+    }
+    .rs-table {
+      --bs-table-color: var(--rs-text);
+      --bs-table-bg: transparent;
+      --bs-table-border-color: rgba(232, 220, 192, 0.15);
+    }
+    .rs-table th {
+      color: rgba(232, 220, 192, 0.55);
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      letter-spacing: 0.04em;
+      font-weight: 600;
+    }
+    .rs-badge-current {
+      background: rgba(255, 122, 26, 0.12);
+      border: 1px solid var(--rs-accent);
+      color: var(--rs-accent);
+      font-weight: 600;
+    }
+    .rs-progress { background-color: rgba(232, 220, 192, 0.12); height: 0.6rem; }
+    .rs-progress .progress-bar { background-color: var(--rs-accent); }
+    .btn-outline-danger { --bs-btn-color: #ff8a80; --bs-btn-border-color: rgba(255, 138, 128, 0.5); }
+  </style>
+</head>
+<body>
+  <main class="flex-grow-1">
+    <div class="container py-5" style="max-width: 720px;">
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <a href="/" class="d-flex align-items-center gap-3 text-decoration-none" style="color: inherit;">
+          <img src="/static/images/logo-dog.png" alt="" width="48" height="34" class="flex-shrink-0">
+          <span class="h4 fw-bold mb-0">recall<span class="rs-accent">.select</span></span>
+        </a>
+        <div class="small text-muted-beige text-end">
+          <a class="text-decoration-none" href="/">&larr; {{ t("rs.account.back") }}</a>
+          <a class="text-decoration-none ms-3" href="/auth/logout">{{ t("rs.body.sign_out") }}</a>
+        </div>
+      </div>
+
+      <h1 class="h3 fw-bold mb-1">{{ t("rs.account.heading") }}</h1>
+      <p class="text-muted-beige mb-4">{{ user.email or t("rs.body.your_account") }}</p>
+
+      <!-- Plan + monthly usage -->
+      <div class="rs-card p-4 mb-4">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <div class="text-muted-beige small text-uppercase">{{ t("rs.account.plan") }}</div>
+            <div class="h5 fw-bold mb-0">{{ summary.plan_name }}</div>
+          </div>
+          <a class="btn btn-rs btn-sm px-3" href="/plans">{{ t("rs.account.upgrade") }}</a>
+        </div>
+
+        <div class="text-muted-beige small text-uppercase mb-1">{{ t("rs.account.usage_heading") }}</div>
+        {% if summary.calls_allowance is none %}
+          <div class="mb-1">{{ t("rs.account.calls_unlimited", used="{:,}".format(summary.calls_used)) }}</div>
+        {% else %}
+          {% set pct = (100 if summary.calls_allowance == 0 else (summary.calls_used * 100 // summary.calls_allowance)) %}
+          <div class="d-flex justify-content-between mb-1">
+            <span>{{ t("rs.account.calls_metered", used="{:,}".format(summary.calls_used), total="{:,}".format(summary.calls_allowance)) }}</span>
+            <span class="text-muted-beige">{{ t("rs.account.calls_remaining", left="{:,}".format(summary.calls_remaining)) }}</span>
+          </div>
+          <div class="progress rs-progress mb-2" role="progressbar" aria-valuenow="{{ pct }}" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar" style="width: {{ [pct, 100] | min }}%"></div>
+          </div>
+        {% endif %}
+        <div class="small text-muted-beige">{{ t("rs.account.calls_reset") }}</div>
+      </div>
+
+      <!-- Projects + data deletion -->
+      <div class="d-flex justify-content-between align-items-baseline mb-2">
+        <h2 class="h5 fw-bold mb-0">{{ t("rs.account.projects_heading") }}</h2>
+        <span class="small text-muted-beige">
+          {% if summary.project_allowance is none %}
+            {{ t("rs.account.projects_unlimited", used=summary.projects_used) }}
+          {% else %}
+            {{ t("rs.account.projects_metered", used=summary.projects_used, total=summary.project_allowance) }}
+          {% endif %}
+        </span>
+      </div>
+
+      {% if summary.projects %}
+      <table class="table rs-table align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col">{{ t("rs.account.col_project") }}</th>
+            <th scope="col" class="text-end">{{ t("rs.account.col_stored") }}</th>
+            <th scope="col"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in summary.projects %}
+          <tr data-project="{{ p.id }}">
+            <td class="fw-semibold">
+              {{ p.name }}
+              {% if p.is_default %}<span class="badge rs-badge-current ms-1">{{ t("rs.account.default_badge") }}</span>{% endif %}
+            </td>
+            <td class="text-end">{{ "{:,}".format(p.points_count) }}</td>
+            <td class="text-end">
+              {% if p.has_data %}
+              <button class="btn btn-outline-danger btn-sm px-3"
+                      type="button"
+                      onclick="deleteData('{{ p.id }}', {{ p.name | tojson }}, this)">
+                {{ t("rs.account.delete_data") }}
+              </button>
+              {% else %}
+              <span class="small text-muted-beige">{{ t("rs.account.empty") }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted-beige">{{ t("rs.account.no_projects") }}</p>
+      {% endif %}
+    </div>
+  </main>
+
+  <footer class="py-3 text-center text-muted-beige small">recall.select</footer>
+
+  <script>
+    const USER_ID = {{ user_id | tojson }};
+    const I18N = {
+      deleteConfirm: {{ t("rs.account.js.delete_confirm") | tojson }},
+      deleteError: {{ t("rs.account.js.delete_error") | tojson }},
+    };
+
+    // Wipe every saved memory in one project (tears down its store), then reload
+    // so the usage figures and this row reflect the empty state.
+    async function deleteData(projectId, name, btn) {
+      if (!confirm(I18N.deleteConfirm.replace('%{name}', name))) return;
+      btn.disabled = true;
+      try {
+        const resp = await fetch(
+          '/api/users/' + encodeURIComponent(USER_ID) +
+          '/projects/' + encodeURIComponent(projectId) + '/collection',
+          { method: 'DELETE' }
+        );
+        // 204 = deleted, 404 = already nothing there; both leave it empty.
+        if (!resp.ok && resp.status !== 404) throw new Error('delete failed: ' + resp.status);
+        window.location.reload();
+      } catch (e) {
+        alert(I18N.deleteError);
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

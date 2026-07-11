@@ -1,0 +1,27 @@
+{% extends "docs/_base.html" %}
+
+{% block title %}{{ t("rs.docs.integrations") }}{% endblock %}
+{% block meta %}<meta name="description" content="{{ t('rs.docs.integrations_lead') }}">{% endblock %}
+
+{% block breadcrumb %}
+  <a href="/docs/integrations">{{ t("rs.docs.title") }}</a>
+  <span class="text-muted-beige">/</span>
+  <span class="text-muted-beige">{{ t("rs.docs.integrations") }}</span>
+{% endblock %}
+
+{% block content %}
+  <h1 class="h3 fw-bold mb-1">{{ t("rs.docs.integrations") }}</h1>
+  <p class="text-muted-beige mb-4">{{ t("rs.docs.integrations_lead") }}</p>
+
+  <div class="row row-cols-1 row-cols-md-2 g-3">
+    {% for intg in integrations %}
+    <div class="col">
+      <a class="d-block h-100 text-decoration-none rs-callout" href="/docs/integrations/{{ intg.slug }}"
+         style="color: inherit; border-left-width: 1px;">
+        <div class="fw-semibold rs-accent">{{ intg.name }} &rarr;</div>
+        <div class="small text-muted-beige">{{ intg.tagline }}</div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+{% endblock %}

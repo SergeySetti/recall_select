@@ -1,0 +1,49 @@
+de:
+  meta:
+    title: recall.select - Langzeitgedächtnis für jeden Agenten
+    description: >-
+      Das einfachste Gedächtnis für KI-Agenten. Für jeden von ihnen. Gib deinem
+      Agenten nur einen einzigen, speziell erstellten Link - das ist die ganze
+      Einrichtung. Nichts verpassen, nichts vergessen.
+  image:
+    alt: recall.select-Logo mit Hund und dem Slogan „Nichts verpassen, nichts vergessen“
+  body:
+    headline_pre: "Langzeitgedächtnis "
+    headline_accent: für jeden
+    headline_post: " KI-Agenten."
+    lead: Langzeitgedächtnis für jeden AI Agenten. Gib ihm nur einen einzigen, speziell erstellten Link - das ist die ganze Einrichtung.
+    semantic: >-
+      Kein bloßer Speicher: Erinnerungen werden nach Bedeutung gefunden. Speichere
+      <span class="rs-accent">„Tiramisu“</span> - und dein Agent findet es mit der Frage nach
+      <span class="rs-accent">„diesem italienischen Dessert“</span>.
+    slogan_alt: Nichts verpassen, nichts vergessen
+    signed_in_as: Angemeldet als %{email}
+    your_account: dein Konto
+    sign_out: Abmelden
+    link_label: Dein Gedächtnis-Link - gib ihn deinem Agenten
+    copy_button: Link kopieren
+    help_signed_in: >-
+      Dein Link ist bereit - klicke auf <span class="rs-accent">%{action}</span>,
+      um ihn zu kopieren, und füge ihn dann in deinen Agenten ein. Halte ihn
+      geheim; wer ihn hat, kann dein Gedächtnis nutzen.
+    help_signed_out: >-
+      Klicke auf <span class="rs-accent">%{action}</span>, um dich mit Google
+      anzumelden und deinen persönlichen Link zu erhalten.
+    pricing: Preise
+    language: Sprache
+  features:
+    private:
+      title: Privat & sicher
+      desc: Nur du und deine Agenten haben Zugriff.
+    setup:
+      title: Ein Link genügt
+      desc: Einen Link einfügen und schon geht's los.
+    memory:
+      title: Semantisches Langzeitgedächtnis
+      desc: Auch Monate später findet „der, der die Spüle repariert hat“ die Nummer des Klempners.
+    anywhere:
+      title: Überall nutzbar
+      desc: Mit jedem LLM oder KI-Agenten.
+  js:
+    copied: Kopiert!
+    link_error: Der Gedächtnis-Link konnte nicht erstellt werden. Bitte versuche es erneut.

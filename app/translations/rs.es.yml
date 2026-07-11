@@ -1,0 +1,49 @@
+es:
+  meta:
+    title: recall.select - memoria a largo plazo para cualquier agente
+    description: >-
+      La memoria semántica más simple posible para agentes de IA. Para cualquiera
+      de ellos. Dale una sola URL - esa es toda la configuración. No pierdas nada,
+      no olvides nada.
+  image:
+    alt: Logo de recall.select con un perro y el lema «No pierdas nada, no olvides nada»
+  body:
+    headline_pre: "Memoria a largo plazo "
+    headline_accent: para cualquier
+    headline_post: " agente de IA."
+    lead: Memoria a largo plazo para cualquier agente de IA. Dale un solo enlace creado especialmente - esa es toda la configuración.
+    semantic: >-
+      No es solo almacenamiento: recuerda por significado. Guarda
+      <span class="rs-accent">«tiramisú»</span> y tu agente lo encontrará preguntando por
+      <span class="rs-accent">«ese postre italiano»</span>.
+    slogan_alt: No pierdas nada, no olvides nada
+    signed_in_as: Sesión iniciada como %{email}
+    your_account: tu cuenta
+    sign_out: Cerrar sesión
+    link_label: Tu enlace de memoria - dáselo a tu agente
+    copy_button: Copiar enlace
+    help_signed_in: >-
+      Tu enlace está listo - haz clic en <span class="rs-accent">%{action}</span>
+      para copiarlo y pégalo en tu agente. Mantenlo en secreto; cualquiera que lo
+      tenga puede usar tu memoria.
+    help_signed_out: >-
+      Haz clic en <span class="rs-accent">%{action}</span> para iniciar sesión con
+      Google y obtener tu enlace personal.
+    pricing: Precios
+    language: Idioma
+  features:
+    private:
+      title: Privado y seguro
+      desc: Solo tú y tus agentes tenéis acceso.
+    setup:
+      title: Configuración con un enlace
+      desc: Añade un enlace y listo.
+    memory:
+      title: Memoria semántica a largo plazo
+      desc: Incluso meses después, «el que arregló el fregadero» encuentra el número del fontanero.
+    anywhere:
+      title: Funciona en todas partes
+      desc: Con cualquier LLM o agente de IA.
+  js:
+    copied: ¡Copiado!
+    link_error: No se pudo crear tu enlace de memoria. Inténtalo de nuevo.

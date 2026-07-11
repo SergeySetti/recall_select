@@ -1,0 +1,59 @@
+# Local development stack - standalone, no Caddy.
+#
+# The production `docker-compose.yml` fronts `web` with a shared Caddy proxy over
+# the external `caddy_net` network and does not publish ports on the host. This
+# file drops Caddy entirely and publishes ports directly so the app is reachable
+# at http://localhost:8000 (and Qdrant at http://localhost:6333) on a dev machine.
+#
+# Usage:
+#   docker compose -f docker-compose.local.yml up --build
+# Requires MONGODB_URI in the environment / .env (remote, managed Mongo).
+
+services:
+    web:
+        build: .
+        image: recall-select-web
+        container_name: recall-select-web
+        restart: unless-stopped
+        ports:
+            - "8000:8000"
+        environment:
+            # Remote embedding API (text -> vector); the only embedding backend.
+            - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:?EMBEDDING_API_KEY must be set}
+            - QDRANT_URL=http://qdrant:6333
+            # Vector dimension for the collections; the remote embedder returns
+            # vectors of exactly this size (via the API's `dimensions` param).
+            - VECTOR_SIZE=${VECTOR_SIZE:-768}
+            - MONGODB_URI=${MONGODB_URI:?MONGODB_URI must be set}
+            - MONGODB_DB=${MONGODB_DB:-recall_select}
+        depends_on:
+            qdrant:
+                condition: service_started
+        networks:
+            - internal
+        healthcheck:
+            test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" ]
+            interval: 30s
+            timeout: 3s
+            retries: 3
+
+    # Vector database. Published on the host here (unlike prod) so you can inspect
+    # collections directly, e.g. curl http://localhost:6333/collections.
+    qdrant:
+        image: qdrant/qdrant:v1.12.4
+        container_name: recall-select-qdrant
+        restart: unless-stopped
+        ports:
+            - "6333:6333"
+            - "6334:6334"
+        volumes:
+            - qdrant_storage:/qdrant/storage
+        networks:
+            - internal
+
+networks:
+    internal:
+        driver: bridge
+
+volumes:
+    qdrant_storage:

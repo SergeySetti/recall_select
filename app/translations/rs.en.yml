@@ -1,0 +1,118 @@
+en:
+  meta:
+    title: recall.select - long-term memory for any agent
+    description: >-
+      Simplest possible semantic memory for AI agents. For any of them. Feed it one URL -
+      that's the whole setup. Don't miss, don't forget.
+  image:
+    alt: recall.select dog logo with the tagline "Don't miss, don't forget"
+  body:
+    # Headline split so only the middle word is accented (see index.html).
+    headline_pre: "Long-term "
+    headline_accent: memory
+    headline_post: " for any AI agent."
+    lead: Long-term memory for any AI agent. Feed it one URL - that's the whole setup.
+    # The "why not just a folder?" answer: it recalls by meaning, not exact words.
+    # Rendered with |safe because of the inline accent <span>s.
+    semantic: >-
+      Not just storage: it recalls by meaning. Save
+      <span class="rs-accent">“tiramisu”</span> and your agent finds it by asking for
+      <span class="rs-accent">“that Italian dessert”</span>.
+    slogan_alt: Don't miss, don't forget
+    signed_in_as: Signed in as %{email}
+    your_account: your account
+    sign_out: Sign out
+    link_label: Your memory link - feed it to your agent
+    copy_button: Copy memory link
+    # %{action} is the (highlighted) copy_button label, injected so the phrase is
+    # authored once. Rendered with |safe because of the inline <span>.
+    help_signed_in: >-
+      Your link is ready - click <span class="rs-accent">%{action}</span> to copy
+      it, then paste it into your agent. Keep it secret; anyone with it can use
+      your memory.
+    help_signed_out: >-
+      Click <span class="rs-accent">%{action}</span> to sign in with Google and
+      get your personal link.
+    pricing: Pricing
+    language: Language
+  # One-line benefits shown in the feature row under the hero (v2 draft).
+  features:
+    private:
+      title: Private & secure
+      desc: Only you and your agents have access.
+    setup:
+      title: One link setup
+      desc: Add one URL and you're ready to go.
+    # The hero (body.semantic) shows the mechanism; this card shows the everyday
+    # value - the audience is non-technical, so the example is from home life.
+    memory:
+      title: Semantic long-term memory
+      desc: Even months later, “the guy who fixed the sink” finds the plumber's number.
+    anywhere:
+      title: Works anywhere
+      desc: Use with any LLM or AI agent.
+  # Plans page (templates/plans.html) - a plain one-row-per-plan table.
+  plans:
+    title: Plans
+    heading: Plans
+    subhead: One row per tier. Monthly allowances, one price.
+    col_plan: Tier
+    col_calls: Calls / month
+    col_projects: Projects
+    col_price: Price / mo
+    choose: Choose
+    sign_in: Sign in
+    current: Current
+    back: Back
+  # Personal area (templates/account.html) - usage, data deletion, upgrade.
+  account:
+    title: Account
+    heading: Your account
+    back: Home
+    plan: Your plan
+    upgrade: Upgrade plan
+    usage_heading: This month
+    calls_metered: "%{used} of %{total} memory actions used"
+    calls_unlimited: "%{used} memory actions used"
+    calls_remaining: "%{left} left"
+    calls_reset: Resets at the start of next month.
+    projects_heading: Your projects
+    projects_metered: "%{used} of %{total} in use"
+    projects_unlimited: "%{used} in use"
+    col_project: Project
+    col_stored: Saved memories
+    default_badge: Default
+    delete_data: Delete data
+    empty: Empty
+    no_projects: No projects yet. Generate your memory link on the home page to start.
+    js:
+      delete_confirm: Delete all saved memories in "%{name}"? This cannot be undone.
+      delete_error: Could not delete the data. Please try again.
+  # Documentation / integration guides (templates/docs/*). English is the source;
+  # other locales fall back here (like plans/account). Long-form guide prose lives
+  # in the app.services.docs registry, not in translations, for now.
+  docs:
+    title: Docs
+    integrations: Integrations
+    integrations_lead: Connect recall.select to your agent or tool. Pick your setup below.
+    nav_heading: Integrations
+    install: Install
+    using: Using it
+    tips: Tips
+    related: Related
+    copy: Copy
+    copied: Copied!
+    copy_error: Could not copy. Please copy it manually.
+    secret_callout: >-
+      Your memory link is the whole credential - anyone who has it can read and
+      write your memory. Keep it secret.
+    alt_heading: Keep the key out of the URL
+    alt_note: >-
+      Putting the key in the URL is the simplest setup, but it can end up in logs
+      or proxies. To avoid that, point your client at the key-less endpoint and
+      send the link in a header instead.
+  # Strings surfaced in client-side JS (injected via a JSON block in the page).
+  js:
+    copied: Copied!
+    link_error: Could not create your memory link. Please try again.
+    checkout_error: Could not start checkout. Please try again.

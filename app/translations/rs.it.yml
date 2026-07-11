@@ -1,0 +1,49 @@
+it:
+  meta:
+    title: recall.select - memoria a lungo termine per qualsiasi agente
+    description: >-
+      La memoria semantica più semplice possibile per gli agenti AI. Per ognuno
+      di loro. Dagli un solo URL - questa è tutta la configurazione. Non perdere
+      nulla, non dimenticare nulla.
+  image:
+    alt: Logo recall.select con un cane e lo slogan «Non perdere nulla, non dimenticare nulla»
+  body:
+    headline_pre: "Memoria a lungo termine "
+    headline_accent: per qualsiasi
+    headline_post: " agente AI."
+    lead: Memoria a lungo termine per qualsiasi agente AI. Dagli un solo link creato apposta - questa è tutta la configurazione.
+    semantic: >-
+      Non è un semplice archivio: ricorda per significato. Salva
+      <span class="rs-accent">«tiramisù»</span> e il tuo agente lo ritroverà chiedendo
+      <span class="rs-accent">«quel dolce italiano»</span>.
+    slogan_alt: Non perdere nulla, non dimenticare nulla
+    signed_in_as: Accesso effettuato come %{email}
+    your_account: il tuo account
+    sign_out: Esci
+    link_label: Il tuo link di memoria - passalo al tuo agente
+    copy_button: Copia il link
+    help_signed_in: >-
+      Il tuo link è pronto - clicca su <span class="rs-accent">%{action}</span>
+      per copiarlo, poi incollalo nel tuo agente. Tienilo segreto; chiunque lo
+      abbia può usare la tua memoria.
+    help_signed_out: >-
+      Clicca su <span class="rs-accent">%{action}</span> per accedere con Google
+      e ottenere il tuo link personale.
+    pricing: Prezzi
+    language: Lingua
+  features:
+    private:
+      title: Privato e sicuro
+      desc: L'accesso è solo tuo e dei tuoi agenti.
+    setup:
+      title: Configurazione con un link
+      desc: Aggiungi un link e sei pronto.
+    memory:
+      title: Memoria semantica a lungo termine
+      desc: Anche mesi dopo, «quello che ha riparato il lavandino» ritrova il numero dell'idraulico.
+    anywhere:
+      title: Funziona ovunque
+      desc: Con qualsiasi LLM o agente AI.
+  js:
+    copied: Copiato!
+    link_error: Impossibile creare il tuo link di memoria. Riprova.

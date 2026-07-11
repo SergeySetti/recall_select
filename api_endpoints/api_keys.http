@@ -1,0 +1,41 @@
+### recall.select - API keys (user-bounded)
+# Self-contained: creates a user, then a key for that user.
+# (JetBrains HTTP client format.)
+
+@baseUrl = http://localhost:8000
+
+### Setup: create a user to own the keys
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+    "email": "keys@example.com"
+}
+
+> {%
+    client.global.set("userId", response.body.id);
+%}
+
+### Create an API key for the user -> 201, key starts with "rs_"
+POST {{baseUrl}}/api/users/{{userId}}/api-keys
+Content-Type: application/json
+
+{
+    "label": "laptop"
+}
+
+> {%
+    client.global.set("keyId", response.body.id);
+%}
+
+### List the user's API keys
+GET {{baseUrl}}/api/users/{{userId}}/api-keys
+
+### Delete the API key -> 204
+DELETE {{baseUrl}}/api/api-keys/{{keyId}}
+
+### Creating a key for an unknown user -> 404
+POST {{baseUrl}}/api/users/does-not-exist/api-keys
+Content-Type: application/json
+
+{}

@@ -1,0 +1,46 @@
+### recall.select - Projects
+# Self-contained: creates a user, then a project under that user.
+# (JetBrains HTTP client format.)
+
+@baseUrl = http://localhost:8000
+
+### Setup: create a user to own the project
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+    "email": "projects@example.com"
+}
+
+> {%
+    client.global.set("userId", response.body.id);
+%}
+
+### Create a project -> 201
+POST {{baseUrl}}/api/users/{{userId}}/projects
+Content-Type: application/json
+
+{
+    "name": "default"
+}
+
+> {%
+    client.global.set("projectId", response.body.id);
+%}
+
+### List the user's projects
+GET {{baseUrl}}/api/users/{{userId}}/projects
+
+### Get one project by id
+GET {{baseUrl}}/api/projects/{{projectId}}
+
+### Rename the project (partial update)
+PATCH {{baseUrl}}/api/projects/{{projectId}}
+Content-Type: application/json
+
+{
+    "name": "notes"
+}
+
+### Delete the project -> 204
+DELETE {{baseUrl}}/api/projects/{{projectId}}

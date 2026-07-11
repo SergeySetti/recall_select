@@ -1,0 +1,73 @@
+name: Deploy
+
+# Auto-deploy to recall-server on every push to master (the production branch),
+# plus a manual "Run workflow" button. This is the automated equivalent of running
+# ./deploy/deploy.sh by hand: it SSHes into the server and pipes deploy/_server_deploy.sh
+# over stdin, so the server runs *this commit's* deploy logic (git sync + Compose
+# rebuild + Caddy reload). All app secrets (MONGODB_URI, etc.) live in the server's
+# .env - none are needed here.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   DEPLOY_SSH_KEY   - private half of an ed25519 key whose public half is in the
+#                      server user's ~/.ssh/authorized_keys.
+#   DEPLOY_HOST      - server IP or hostname.
+#   DEPLOY_USER      - SSH user to deploy as.
+#
+# Optional repository secrets:
+#   DEPLOY_PORT         - SSH port (default 22).
+#   DEPLOY_KNOWN_HOSTS  - pinned known_hosts line(s). If unset, the host key is
+#                         fetched via ssh-keyscan (trust-on-first-use).
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# One deploy at a time. Don't cancel an in-flight deploy midway (that could leave
+# the stack half-rebuilt); just queue the next one behind it.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & deploy on recall-server
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+    steps:
+      - name: Check out this commit
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ]; then
+            echo "::error::Set the DEPLOY_SSH_KEY, DEPLOY_HOST and DEPLOY_USER secrets under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "$DEPLOY_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Run deploy on server
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            REMOTE_DIR=/home/$DEPLOY_USER/recall_select \
+            REPO_URL=git@github.com:SergeySetti/recall_select.git \
+            BRANCH=master \
+            PROXY_CONTAINER=proxy-caddy \
+            'bash -s' < deploy/_server_deploy.sh
