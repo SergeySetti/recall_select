@@ -53,6 +53,17 @@ class FakeQdrant:
         points = [SimpleNamespace(id=pid, score=1.0, payload=pl) for pid, pl in items]
         return SimpleNamespace(points=points)
 
+    # Document-style ops used by the semantic layer (delete prunes relations).
+    def scroll(self, *, collection_name, limit, offset=None, with_payload=True, with_vectors=False):
+        bucket = self.data.get(collection_name, {})
+        return [SimpleNamespace(id=pid, payload=pl) for pid, pl in bucket.items()], None
+
+    def set_payload(self, *, collection_name, payload, points) -> None:
+        bucket = self.data.get(collection_name, {})
+        for pid in points:
+            if pid in bucket:
+                bucket[pid] = {**bucket[pid], **payload}
+
 
 @pytest.fixture
 def client():

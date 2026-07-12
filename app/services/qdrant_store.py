@@ -119,3 +119,103 @@ def search(
         query=vector,
         limit=limit,
     ).points
+
+
+def neighbors(
+    collection: str,
+    point_id: str | int,
+    *,
+    limit: int = 10,
+    client: QdrantClient | None = None,
+) -> list:
+    """Nearest stored memories to an existing point, by its own vector.
+
+    Qdrant resolves a bare point id in the ``query`` position to that point's
+    stored vector, so this is "find memories like this one". The point matches
+    itself, so we ask for one extra and let the caller drop the seed.
+    """
+    client = client or get_client()
+    if not client.collection_exists(collection):
+        return []
+    return client.query_points(
+        collection_name=collection,
+        query=point_id,
+        limit=limit + 1,
+    ).points
+
+
+def scroll_points(
+    collection: str,
+    *,
+    with_vectors: bool = True,
+    page_size: int = 256,
+    limit: int | None = None,
+    client: QdrantClient | None = None,
+) -> list:
+    """Enumerate stored points (payload, and optionally vectors) as a flat list.
+
+    Pages through the whole collection. ``limit`` caps the total returned - the
+    semantic passes are pairwise, so callers bound the work on large stores.
+    """
+    client = client or get_client()
+    if not client.collection_exists(collection):
+        return []
+    points: list = []
+    offset = None
+    while True:
+        batch, offset = client.scroll(
+            collection_name=collection,
+            limit=page_size,
+            offset=offset,
+            with_payload=True,
+            with_vectors=with_vectors,
+        )
+        points.extend(batch)
+        if offset is None or (limit is not None and len(points) >= limit):
+            break
+    return points[:limit] if limit is not None else points
+
+
+def retrieve_points(
+    collection: str,
+    ids: list[str | int],
+    *,
+    with_vectors: bool = True,
+    client: QdrantClient | None = None,
+) -> list:
+    """Fetch specific points by id (payload, and optionally vectors)."""
+    client = client or get_client()
+    if not client.collection_exists(collection):
+        return []
+    return client.retrieve(
+        collection_name=collection,
+        ids=list(ids),
+        with_payload=True,
+        with_vectors=with_vectors,
+    )
+
+
+def set_payload(
+    collection: str,
+    point_id: str | int,
+    payload: dict,
+    *,
+    client: QdrantClient | None = None,
+) -> bool:
+    """Merge ``payload`` onto one existing point (each top-level key is replaced).
+
+    Points are document-style: this is how a stored memory gets enriched after
+    the fact (semantic annotations, relations) without touching its vector.
+    Returns False if the collection or the point does not exist.
+    """
+    client = client or get_client()
+    if not client.collection_exists(collection):
+        return False
+    if not client.retrieve(collection_name=collection, ids=[point_id]):
+        return False
+    client.set_payload(
+        collection_name=collection,
+        payload=payload,
+        points=[point_id],
+    )
+    return True

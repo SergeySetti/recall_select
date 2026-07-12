@@ -31,8 +31,12 @@ first memory is stored into a `(user, project)` pair.
 - **`app/mcp_server.py`** - the MCP server behind the memory link. An agent's MCP
   client points at `{PUBLIC_BASE_URL}/m/{key}` (Streamable HTTP, stateless, JSON
   responses); the API key in the path is the whole credential and scopes the
-  `store_memory` / `recall_memory` / `delete_memory` tools to the key owner's
-  default project. The same key can instead be sent as `Authorization: Bearer`
+  tools to the key owner's default project. Basic tools: `store_memory` /
+  `recall_memory` / `delete_memory`. Semantic-layer tools (see
+  `vector_semantics.py`): `link_memories` / `unlink_memories` /
+  `annotate_memory` / `memory_connections` / `recall_connected` - the connected agent does the
+  relation reasoning client-side (only on explicit demand) and these ingest or
+  traverse the result. The same key can instead be sent as `Authorization: Bearer`
   against the key-less `/mcp` endpoint, to keep the secret out of the URL/logs.
   `{...}/m/{key}.md` (in `app/api/connect.py`) serves the matching setup
   instructions (both forms).
@@ -42,7 +46,28 @@ first memory is stored into a `(user, project)` pair.
   rather than building clients themselves.
 - **`app/services/`** - the service layer (no HTTP/route code, just I/O):
   - `qdrant_store.py` - Qdrant client + `ensure_collection`/`upsert_memory`/
-    `search`/`delete_memory`.
+    `search`/`delete_memory`, plus the point-level primitives the semantic
+    layer needs (`neighbors`, `scroll_points`, `retrieve_points`, `set_payload`).
+  - `vector_semantics.py` - the vector memory utility layer: treats a store as
+    a graph of meaning. A reserved `_semantics` namespace in each point's
+    payload holds deixis anchors (owner, stored-at; written at store time),
+    client-extracted entities, and client-declared typed relations
+    (`upsert_relations` validates and stores them - no LLM calls server-side).
+    Declared relations carry two quality hedges: `confidence` (0-1], scales the
+    edge's traversal strength) and `valid_till` (ISO 8601; expired edges are
+    ignored by every read path, so stale structure retires itself). Hygiene:
+    `remove_relations` deletes wrong edges (the corrective twin of
+    `upsert_relations`), and `memory.delete_memory` calls `prune_relations_to`
+    so no dangling edges survive a memory's deletion.
+    Pluggable **lenses** (`topical`/`temporal`/`entity`/`declared`) derive
+    typed edges; on top sit `semantic_graph` (multigraph), `spreading_activation`
+    (retrieval by connection), `concept_clusters` (emergent ontology), and
+    `infer_relation` (declared truth first, geometric heuristics after).
+    Perf memo: incoming-edge lookup (`relations_of(include_incoming=True)`)
+    is a bounded scroll-and-scan today. If reverse traversal becomes hot, the
+    fix is a Qdrant **payload index** on `_semantics.relations[].target`
+    (`create_payload_index`, keyword schema) and a filtered query instead of
+    the scan - same store, just an index; nothing about the schema changes.
   - `mongo.py` - Mongo client, `get_db()`, and `ensure_indexes()` (enforces the
     one-to-one `(user, project)` rule with a unique compound index).
   - `users.py` - `add_user`, `get_user`, `get_user_by_email`, `update_user`.

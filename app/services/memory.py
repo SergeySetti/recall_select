@@ -17,7 +17,7 @@ from uuid import uuid4
 from pymongo.database import Database
 from qdrant_client import QdrantClient
 
-from app.services import collection_provisioning, collections, qdrant_store, usage
+from app.services import collection_provisioning, collections, qdrant_store, usage, vector_semantics
 from app.services.embeddings_remote import embed as default_embed
 
 # The injected embedder is used as a plain callable here; the `Embedder`
@@ -45,7 +45,14 @@ def store_memory(
     name = record["name"]
 
     point_id = str(uuid4())
-    payload = {"text": text, **(metadata or {})}
+    # The `_semantics` anchors (owner, stored_at) must be captured at write time -
+    # deixis is unrecoverable later. Merged last: the key is reserved, so a
+    # metadata collision is overridden rather than trusted.
+    payload = {
+        "text": text,
+        **(metadata or {}),
+        **vector_semantics.annotate_store_payload(user_id),
+    }
     qdrant_store.upsert_memory(name, point_id, embed(text), payload, client=qdrant)
 
     # Stats: count this write against the all-time and the monthly meters, then
@@ -80,6 +87,10 @@ def delete_memory(
     collections.record_call(user_id, project_id, db=db)
     usage.record_call(user_id, db=db)
     if deleted:
+        # Declared relations live on their source points, so other memories may
+        # still hold edges aimed at the one just removed - prune them or the
+        # semantic graph keeps routing through a ghost.
+        vector_semantics.prune_relations_to(user_id, project_id, memory_id, db=db, qdrant=qdrant)
         points_count = qdrant_store.count(record["name"], client=qdrant)
         collections.set_points_count(user_id, project_id, points_count, db=db)
     return deleted

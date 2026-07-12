@@ -27,15 +27,20 @@ from starlette.responses import JSONResponse
 from starlette.types import Receive, Scope, Send
 
 from app.api.deps import get_database, get_embedder, get_qdrant  # noqa: F401 - rebindable in tests
-from app.services import api_keys, memory, workspaces
+from app.services import api_keys, collections, memory, usage, vector_semantics, workspaces
 
 INSTRUCTIONS = (
     "recall.select gives you persistent long-term memory. Call store_memory to "
     "save a fact worth keeping; call recall_memory to fetch the stored memories "
     "closest in meaning to a query - do this before answering when past context "
     "could matter; call delete_memory when a stored fact turns out to be wrong "
-    "or stale. The URL you connected with already authenticates you and selects "
-    "your memory workspace."
+    "or stale. Memories can also be linked into a knowledge graph: when the "
+    "user asks for it (or a connection is clearly durable), infer relations "
+    "and entities yourself and record them with link_memories / "
+    "annotate_memory; use memory_connections to inspect what one memory links "
+    "to, and recall_connected for associative recall along those links. The "
+    "URL you connected with already authenticates you and selects your memory "
+    "workspace."
 )
 
 mcp = FastMCP("recall-select", instructions=INSTRUCTIONS)
@@ -133,6 +138,169 @@ async def delete_memory(memory_id: str, ctx: Context) -> dict[str, Any]:
         return {"id": memory_id, "deleted": deleted}
 
     return await anyio.to_thread.run_sync(_delete)
+
+
+def _record_usage(user_id: str, project_id: str, db: Database) -> None:
+    """Count one call against the monthly and per-collection meters.
+
+    The semantic tools delegate to ``vector_semantics``, which is a pure
+    toolset with no metering of its own - budget checks (``check_call_allowed``
+    before the work) and this recording happen here at the MCP boundary,
+    mirroring what ``memory.py`` does in-service for the basic tools.
+    """
+    collections.record_call(user_id, project_id, db=db)
+    usage.record_call(user_id, db=db)
+
+
+@mcp.tool()
+async def link_memories(
+    relations: list[dict[str, Any]], ctx: Context
+) -> dict[str, Any]:
+    """Record typed relations you have inferred between stored memories.
+
+    Do the reasoning yourself, then declare the result - use this when the
+    user explicitly asks to connect memories, or when a relation is clearly
+    durable (part-of, causal, same-event...). Each relation needs `source`,
+    `target` (memory ids from store_memory/recall_memory) and a short `type`
+    (e.g. "part_of", "causes", "about_same_event"); optional `directed`
+    (default true), `weight` (0-1], and `evidence` (small JSON note on why).
+    Hedge honestly: set `confidence` (0-1] below 1.0 when you are not certain -
+    unsure links influence recall proportionally less - and set `valid_till`
+    (ISO 8601) on relations with a shelf life ("valid until the trip", "until
+    the deadline"); expired links stop affecting recall automatically.
+    Declared relations power memory_connections and recall_connected, and
+    re-declaring the same (source, target, type) updates it. Returns counts
+    plus per-relation rejection reasons.
+    """
+    def _link() -> dict[str, Any]:
+        db = get_database()
+        user_id, project_id = _workspace_from_context(ctx, db)
+        usage.check_call_allowed(user_id, db=db)
+        result = vector_semantics.upsert_relations(
+            user_id, project_id, relations, db=db, qdrant=get_qdrant()
+        )
+        _record_usage(user_id, project_id, db)
+        return result
+
+    return await anyio.to_thread.run_sync(_link)
+
+
+@mcp.tool()
+async def unlink_memories(
+    relations: list[dict[str, Any]], ctx: Context
+) -> dict[str, Any]:
+    """Remove declared relations that turned out to be wrong.
+
+    The corrective twin of link_memories - use it when a linked connection is
+    incorrect or should never have been declared (for relations that merely
+    expire, prefer valid_till on link_memories). Each item needs `source` and
+    `target` as originally declared (relations belong to their source memory);
+    add `type` to remove one specific relation, omit it to remove every
+    relation from source to target. Deleting a memory already cleans up
+    relations pointing at it - no need to unlink first. Returns the removed
+    count plus per-item rejection reasons.
+    """
+    def _unlink() -> dict[str, Any]:
+        db = get_database()
+        user_id, project_id = _workspace_from_context(ctx, db)
+        usage.check_call_allowed(user_id, db=db)
+        result = vector_semantics.remove_relations(
+            user_id, project_id, relations, db=db, qdrant=get_qdrant()
+        )
+        _record_usage(user_id, project_id, db)
+        return result
+
+    return await anyio.to_thread.run_sync(_unlink)
+
+
+@mcp.tool()
+async def annotate_memory(
+    memory_id: str, annotations: dict[str, Any], ctx: Context
+) -> dict[str, Any]:
+    """Attach semantic annotations to one stored memory.
+
+    For facts you have extracted from the memory's text on demand - most
+    importantly `entities` (a list of normalised names: people, companies,
+    projects, places), which lets recall_connected follow "same entity" links.
+    Other keys (resolved dates, places, tags) are stored as given. Merges
+    key-by-key into the memory's semantic record; relations belong in
+    link_memories, not here. Returns `annotated: false` for unknown ids.
+    """
+    def _annotate() -> dict[str, Any]:
+        db = get_database()
+        user_id, project_id = _workspace_from_context(ctx, db)
+        usage.check_call_allowed(user_id, db=db)
+        annotated = vector_semantics.annotate_memory(
+            user_id, project_id, memory_id, annotations, db=db, qdrant=get_qdrant()
+        )
+        _record_usage(user_id, project_id, db)
+        return {"id": memory_id, "annotated": annotated}
+
+    return await anyio.to_thread.run_sync(_annotate)
+
+
+@mcp.tool()
+async def memory_connections(
+    memory_id: str, ctx: Context, limit: int = 10
+) -> dict[str, Any]:
+    """Everything one memory is connected to.
+
+    Two views in one call: `similar` - the memories nearest in meaning
+    (semantic neighbours, closest first) - and `relations` - the typed links
+    previously declared via link_memories, incoming and outgoing. Use it to
+    explore around a memory before reasoning about it, or to check what is
+    already linked before declaring new relations.
+    """
+    def _connections() -> dict[str, Any]:
+        db = get_database()
+        user_id, project_id = _workspace_from_context(ctx, db)
+        usage.check_call_allowed(user_id, db=db)
+        qdrant = get_qdrant()
+        similar = vector_semantics.related_memories(
+            user_id, project_id, memory_id, limit=limit, db=db, qdrant=qdrant
+        )
+        relations = vector_semantics.relations_of(
+            user_id, project_id, memory_id, include_incoming=True, db=db, qdrant=qdrant
+        )
+        _record_usage(user_id, project_id, db)
+        return {"id": memory_id, "similar": similar, "relations": relations}
+
+    return await anyio.to_thread.run_sync(_connections)
+
+
+@mcp.tool()
+async def recall_connected(
+    seed: str,
+    ctx: Context,
+    hops: int = 2,
+    limit: int = 10,
+    layers: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Associative recall: walk the memory graph outward from a seed.
+
+    `seed` is a memory id or a free-text query. Where recall_memory returns a
+    flat top-k, this follows connections hop by hop, so context arrives as a
+    linked neighbourhood - a memory two links away still surfaces, ranked
+    below its closer connectors. `layers` picks which links to follow:
+    "topical" (by meaning, the default), "entity" (same annotated entity),
+    "temporal" (stored close in time), "declared" (relations from
+    link_memories) - e.g. ["declared", "entity"] follows only explicit
+    structure. Returns memories ranked by connection strength.
+    """
+    def _recall() -> list[dict[str, Any]]:
+        db = get_database()
+        user_id, project_id = _workspace_from_context(ctx, db)
+        usage.check_call_allowed(user_id, db=db)
+        result = vector_semantics.spreading_activation(
+            user_id, project_id, seed,
+            lenses=tuple(layers) if layers else ("topical",),
+            hops=hops, limit=limit,
+            db=db, qdrant=get_qdrant(), embed=get_embedder(),
+        )
+        _record_usage(user_id, project_id, db)
+        return result
+
+    return await anyio.to_thread.run_sync(_recall)
 
 
 # The running transport manager. Set for the duration of `session_lifespan()`;

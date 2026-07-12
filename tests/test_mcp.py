@@ -21,7 +21,7 @@ from pymongo.database import Database
 from qdrant_client import QdrantClient
 
 from app import main, mcp_server
-from app.services import api_keys, billing, mongo, usage, users
+from app.services import api_keys, billing, mongo, usage, users, vector_semantics
 
 HEADERS = {
     "accept": "application/json, text/event-stream",
@@ -30,7 +30,12 @@ HEADERS = {
 
 
 class FakeQdrant:
-    """In-memory stand-in: stores points per collection and returns them on query."""
+    """In-memory stand-in: keeps whole points (vector + payload) per collection.
+
+    Ranks queries by real cosine so the semantic tools behave; supports the
+    document-style operations (scroll, set_payload) the ``_semantics`` layer
+    uses. ``self.data[collection][id]`` is a point namespace, not a bare payload.
+    """
 
     def __init__(self) -> None:
         self.data: dict[str, dict] = {}
@@ -47,14 +52,14 @@ class FakeQdrant:
     def upsert(self, *, collection_name, points) -> None:
         bucket = self.data.setdefault(collection_name, {})
         for p in points:
-            bucket[p.id] = p.payload
+            bucket[p.id] = SimpleNamespace(id=p.id, vector=p.vector, payload=p.payload)
 
     def count(self, *, collection_name, exact=True):
         return SimpleNamespace(count=len(self.data.get(collection_name, {})))
 
-    def retrieve(self, *, collection_name, ids):
+    def retrieve(self, *, collection_name, ids, with_payload=True, with_vectors=False):
         bucket = self.data.get(collection_name, {})
-        return [SimpleNamespace(id=i) for i in ids if i in bucket]
+        return [bucket[i] for i in ids if i in bucket]
 
     def delete(self, *, collection_name, points_selector):
         bucket = self.data.get(collection_name, {})
@@ -62,9 +67,26 @@ class FakeQdrant:
             bucket.pop(pid, None)
 
     def query_points(self, *, collection_name, query, limit):
-        items = list(self.data.get(collection_name, {}).items())[:limit]
-        points = [SimpleNamespace(id=pid, score=1.0, payload=pl) for pid, pl in items]
-        return SimpleNamespace(points=points)
+        bucket = self.data.get(collection_name, {})
+        # A bare id in the query position resolves to that point's own vector.
+        is_id = isinstance(query, (str, int)) and query in bucket
+        vector = bucket[query].vector if is_id else query
+        scored = sorted(
+            (SimpleNamespace(id=p.id, score=vector_semantics._cosine(vector, p.vector), payload=p.payload)
+             for p in bucket.values()),
+            key=lambda h: h.score,
+            reverse=True,
+        )
+        return SimpleNamespace(points=scored[:limit])
+
+    def scroll(self, *, collection_name, limit, offset=None, with_payload=True, with_vectors=False):
+        return list(self.data.get(collection_name, {}).values()), None
+
+    def set_payload(self, *, collection_name, payload, points) -> None:
+        bucket = self.data.get(collection_name, {})
+        for pid in points:
+            if pid in bucket:
+                bucket[pid].payload = {**(bucket[pid].payload or {}), **payload}
 
 
 class FakeContainer:
@@ -120,7 +142,11 @@ def test_initialize_and_list_tools(env):
         assert resp.json()["result"]["serverInfo"]["name"] == "recall-select"
 
         tools = rpc(client, env.key, "tools/list", {}).json()["result"]["tools"]
-        assert {t["name"] for t in tools} == {"store_memory", "recall_memory", "delete_memory"}
+        assert {t["name"] for t in tools} == {
+            "store_memory", "recall_memory", "delete_memory",
+            "link_memories", "unlink_memories", "annotate_memory",
+            "memory_connections", "recall_connected",
+        }
 
 
 def test_store_then_recall_roundtrip(env):
@@ -138,7 +164,12 @@ def test_store_then_recall_roundtrip(env):
         recalled = call_tool(client, env.key, "recall_memory", {"query": "UI preferences"})
         hits = recalled["result"] if isinstance(recalled, dict) else recalled
         assert len(hits) == 1
-        assert hits[0]["payload"] == {"text": "The user prefers dark mode", "tag": "prefs"}
+        payload = hits[0]["payload"]
+        assert payload["text"] == "The user prefers dark mode"
+        assert payload["tag"] == "prefs"
+        # Every memory is born with its deixis anchors (owner + stored_at).
+        assert payload["_semantics"]["owner"] == env.user["_id"]
+        assert "stored_at" in payload["_semantics"]
 
 
 def test_delete_memory_roundtrip(env):
@@ -178,6 +209,58 @@ def test_store_over_monthly_budget_is_tool_error(env):
         result = resp.json()["result"]
         assert result.get("isError")
         assert "Monthly call limit reached" in result["content"][0]["text"]
+
+
+def test_semantic_layer_roundtrip(env):
+    """The client-side reasoning loop: annotate, declare relations, walk the graph."""
+    with TestClient(main.app) as client:
+        a = call_tool(client, env.key, "store_memory", {"text": "Anna plans the kitchen remodel"})
+        b = call_tool(client, env.key, "store_memory", {"text": "The remodel budget is 5000"})
+
+        # Client-derived annotations land in the reserved namespace.
+        ann = call_tool(client, env.key, "annotate_memory", {
+            "memory_id": a["id"], "annotations": {"entities": ["kitchen remodel"]},
+        })
+        assert ann == {"id": a["id"], "annotated": True}
+        call_tool(client, env.key, "annotate_memory", {
+            "memory_id": b["id"], "annotations": {"entities": ["kitchen remodel"]},
+        })
+
+        # Client-built relations are validated and stored on the source point.
+        linked = call_tool(client, env.key, "link_memories", {"relations": [
+            {"source": b["id"], "target": a["id"], "type": "part_of"},
+            {"source": b["id"], "target": "nope", "type": "part_of"},
+        ]})
+        assert linked["stored"] == 1
+        assert linked["rejected"][0]["reason"] == "unknown memory id"
+
+        # Both views: semantic neighbours + declared edges (incoming included).
+        conns = call_tool(client, env.key, "memory_connections", {"memory_id": a["id"]})
+        assert {r["type"] for r in conns["relations"]} == {"part_of"}
+        assert conns["relations"][0]["source"] == b["id"]
+
+        # Associative recall over explicit structure only reaches the target.
+        hits = call_tool(client, env.key, "recall_connected", {
+            "seed": b["id"], "layers": ["declared", "entity"],
+        })
+        hits = hits["result"] if isinstance(hits, dict) else hits
+        assert a["id"] in {h["id"] for h in hits}
+
+        # A wrong relation can be corrected: unlink removes it physically.
+        removed = call_tool(client, env.key, "unlink_memories", {"relations": [
+            {"source": b["id"], "target": a["id"]},
+        ]})
+        assert removed == {"removed": 1, "rejected": []}
+        conns = call_tool(client, env.key, "memory_connections", {"memory_id": a["id"]})
+        assert conns["relations"] == []
+
+        # Deleting a memory prunes the dangling edges still aimed at it.
+        call_tool(client, env.key, "link_memories", {"relations": [
+            {"source": b["id"], "target": a["id"], "type": "part_of"},
+        ]})
+        call_tool(client, env.key, "delete_memory", {"memory_id": a["id"]})
+        conns_b = call_tool(client, env.key, "memory_connections", {"memory_id": b["id"]})
+        assert conns_b["relations"] == []
 
 
 def test_unknown_key_is_404(env):

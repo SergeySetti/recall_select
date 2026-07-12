@@ -26,7 +26,12 @@ testability. `mongo.py` (client + `ensure_indexes`, which enforces the
 one-to-one rule via a unique compound index on `collections.(user_id,
 project_id)`), `qdrant_store.py`, `users.py`, `api_keys.py`, `projects.py`,
 `collections.py`, `embeddings_remote.py` (the only embedding backend - a remote
-API, `EMBEDDING_API_KEY`). `app/main.py` ensures the Mongo indexes on startup,
+API, `EMBEDDING_API_KEY`), `vector_semantics.py` (the semantic-connections
+layer over stored points: a reserved `_semantics` payload namespace per point -
+deixis anchors written at store time by `memory.store_memory` - plus lens-based
+typed edges and graph/activation/ontology methods; relation *reasoning* happens
+client-side, the service only validates/stores declared relations and never
+calls an LLM). `app/main.py` ensures the Mongo indexes on startup,
 tolerant of a cold backend. Qdrant collections are created lazily, on the first
 memory store into a `(user, project)` pair - never at startup or provisioning.
 
@@ -34,8 +39,10 @@ memory store into a `(user, project)` pair - never at startup or provisioning.
 The memory link's MCP endpoint: `/m/{key}` speaks Streamable HTTP (official
 `mcp` SDK / FastMCP, stateless + JSON responses; the transport's session manager
 runs inside the app lifespan). The API key in the path is the whole credential -
-the tools (`store_memory` / `recall_memory` / `delete_memory`) resolve it to the
-key owner's **default project**. `/m/{key}.md` (`app/api/connect.py`) serves the matching
+the tools (`store_memory` / `recall_memory` / `delete_memory`, plus the
+semantic-layer tools `link_memories` / `unlink_memories` / `annotate_memory` /
+`memory_connections` / `recall_connected`) resolve it to the key owner's
+**default project**. `/m/{key}.md` (`app/api/connect.py`) serves the matching
 setup instructions and must keep route precedence for `.md` URLs.
 
 ### Tests
