@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
+
+from app.services.api_keys import masked as _masked_key
 
 
 class _Out(BaseModel):
@@ -51,6 +53,16 @@ class MemoryLinkOut(BaseModel):
     collection: str
 
 
+class MemoryLinkStatusOut(BaseModel):
+    # Non-secret snapshot of the user's memory link: does one exist, and how does
+    # it read masked. Safe to return any number of times (unlike the plaintext
+    # link, which only key (re)generation reveals).
+    exists: bool
+    masked_link: str | None = None
+    created_at: datetime | None = None
+    last_used_at: datetime | None = None
+
+
 # --- API keys --------------------------------------------------------------
 
 class ApiKeyCreate(BaseModel):
@@ -58,11 +70,19 @@ class ApiKeyCreate(BaseModel):
 
 
 class ApiKeyOut(_Out):
-    # Listing/reading a key never exposes the secret - only a short prefix hint.
+    # Listing/reading a key never exposes the secret - only the display hints
+    # (prefix + last 4), joined into `key_masked` for a "rs_ab12…wxyz" render.
     user_id: str
     key_prefix: str
+    key_last4: str | None = Field(default=None, exclude=True)
     label: str | None = None
     created_at: datetime
+    last_used_at: datetime | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def key_masked(self) -> str:
+        return _masked_key({"key_prefix": self.key_prefix, "key_last4": self.key_last4})
 
 
 class ApiKeySecretOut(ApiKeyOut):

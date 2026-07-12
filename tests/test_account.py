@@ -5,7 +5,7 @@ the overview only reads billing/usage/projects/collections, no Qdrant or embedde
 """
 from __future__ import annotations
 
-from app.services import account, billing, collections, projects, usage, users
+from app.services import account, api_keys, billing, collections, projects, usage, users
 
 
 def test_overview_free_user_no_projects(mongo_db):
@@ -22,6 +22,26 @@ def test_overview_free_user_no_projects(mongo_db):
     assert summary["projects_used"] == 0
     assert summary["projects"] == []
     assert summary["memories_total"] == 0
+    assert summary["keys"] == []
+
+
+def test_overview_lists_keys_masked(mongo_db):
+    user = users.add_user("keys@example.com", db=mongo_db)
+    uid = user["_id"]
+    link_key = api_keys.add_api_key(uid, label="default", db=mongo_db)
+    extra_key = api_keys.add_api_key(uid, label="kitchen laptop", db=mongo_db)
+
+    rows = account.overview(user, db=mongo_db)["keys"]
+
+    by_id = {row["id"]: row for row in rows}
+    assert set(by_id) == {link_key["_id"], extra_key["_id"]}
+    # The memory-link key is flagged; every row is display-safe (masked, no secret).
+    assert by_id[link_key["_id"]]["is_default"] is True
+    assert by_id[extra_key["_id"]]["is_default"] is False
+    for row, minted in ((by_id[link_key["_id"]], link_key), (by_id[extra_key["_id"]], extra_key)):
+        assert row["masked"] == api_keys.masked(minted)
+        assert minted["key"] not in row.values()
+        assert row["last_used_at"] is None
 
 
 def test_overview_counts_usage_and_project_data(mongo_db):

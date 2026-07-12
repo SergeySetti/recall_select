@@ -195,36 +195,44 @@
     const I18N = {
       copied: {{ t("rs.js.copied") | tojson }},
       linkError: {{ t("rs.js.link_error") | tojson }},
+      regenButton: {{ t("rs.body.regen_button") | tojson }},
+      regenConfirm: {{ t("rs.js.regen_confirm") | tojson }},
     };
 
     const linkEl = document.getElementById('memory-link');
+    // True while the element shows the *masked* form of an existing link - a
+    // display hint, not a copyable secret (only regeneration reveals one).
+    let maskedShown = false;
 
-    // Generate the personal memory link and show it in place of the example.
-    // Each call mints a *fresh* key (the secret is stored hashed and can't be
-    // re-shown), so this runs only on an explicit click - never on page load,
-    // which would silently rotate the link on every visit. Returns the link.
+    // Mint a fresh key and reveal its link exactly once (the secret is stored
+    // hashed and can't be re-shown). Runs only on an explicit click - never on
+    // page load, which would silently rotate the link on every visit.
     async function fetchLink() {
       const resp = await fetch('/api/me/link', { method: 'POST' });
       if (!resp.ok) throw new Error('request failed: ' + resp.status);
       const data = await resp.json();
       linkEl.textContent = data.link;
       linkEl.classList.remove('is-placeholder');
+      maskedShown = false;
       return data.link;
     }
 
-    // Signed-in only: copy the link (provisioning it first if not loaded yet).
+    // Signed-in only: copy the link (creating it first if none exists yet).
+    // Regenerating over an existing link asks first - the old link stops
+    // working, so it must never happen as a silent side effect of "copy".
     // Anonymous visitors get the <a href="/auth/login"> button, so this never runs.
     async function copyMemoryLink() {
       const btn = document.getElementById('copy-btn');
+      if (maskedShown && !confirm(I18N.regenConfirm)) return;
       const label = btn.textContent;
       btn.disabled = true;
       try {
-        const link = linkEl.classList.contains('is-placeholder')
+        const link = (maskedShown || linkEl.classList.contains('is-placeholder'))
           ? await fetchLink()
           : linkEl.textContent.trim();
         await navigator.clipboard.writeText(link);
         btn.textContent = I18N.copied;
-        setTimeout(() => { btn.textContent = label; }, 1500);
+        setTimeout(() => { btn.textContent = {{ t("rs.body.copy_button") | tojson }}; }, 1500);
       } catch (e) {
         alert(I18N.linkError);
         btn.textContent = label;
@@ -233,9 +241,20 @@
       }
     }
 
-    // No auto-fill on load: generating rotates the key (reveal-once), so the
-    // link appears only when the user clicks - the example placeholder stands in
-    // until then.
+    // Signed-in page load: show the state of an existing link, masked (a plain
+    // GET - nothing is minted or rotated). The button then reads "get a new
+    // link", since the secret itself can't be re-shown.
+    if (linkEl.dataset.signedIn) {
+      fetch('/api/me/link')
+        .then((resp) => (resp.ok ? resp.json() : null))
+        .then((status) => {
+          if (!status || !status.exists) return;
+          linkEl.textContent = status.masked_link;
+          maskedShown = true;
+          document.getElementById('copy-btn').textContent = I18N.regenButton;
+        })
+        .catch(() => {}); // status is cosmetic - the placeholder stands in.
+    }
   </script>
   <script defer src="https://cloud.umami.is/script.js" data-website-id="4a200deb-0ba1-4b1f-9212-4ece132aa618"></script>
 </body>

@@ -22,6 +22,7 @@ de:
     sign_out: Abmelden
     link_label: Dein Gedächtnis-Link - gib ihn deinem Agenten
     copy_button: Link kopieren
+    regen_button: Neuen Link holen
     help_signed_in: >-
       Dein Link ist bereit - klicke auf <span class="rs-accent">%{action}</span>,
       um ihn zu kopieren, und füge ihn dann in deinen Agenten ein. Halte ihn
@@ -47,3 +48,6 @@ de:
   js:
     copied: Kopiert!
     link_error: Der Gedächtnis-Link konnte nicht erstellt werden. Bitte versuche es erneut.
+    regen_confirm: >-
+      Du hast bereits einen Gedächtnis-Link. Ein neuer Link schaltet den alten ab -
+      Agenten, die ihn noch nutzen, verlieren den Zugriff. Fortfahren?

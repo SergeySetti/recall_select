@@ -24,6 +24,9 @@ en:
     sign_out: Sign out
     link_label: Your memory link - feed it to your agent
     copy_button: Copy memory link
+    # Shown instead of copy_button when a link already exists: the secret can't
+    # be re-shown, so the only action is minting a fresh one.
+    regen_button: Get a new link
     # %{action} is the (highlighted) copy_button label, injected so the phrase is
     # authored once. Rendered with |safe because of the inline <span>.
     help_signed_in: >-
@@ -85,9 +88,34 @@ en:
     delete_data: Delete data
     empty: Empty
     no_projects: No projects yet. Generate your memory link on the home page to start.
+    # API keys panel: masked list, reveal-once creation, revoke.
+    keys_heading: API keys
+    keys_intro: >-
+      Each key is a separate memory link for your agents. A key is shown in full
+      only once, right after it's created - after that only its masked form.
+    new_key: New key
+    col_key: Key
+    col_label: Label
+    col_created: Created
+    col_last_used: Last used
+    never_used: Never
+    memory_link_badge: Memory link
+    reveal_heading: Your new memory link - copy it now
+    reveal_note: >-
+      For your security it won't be shown again. Keep it secret; anyone who has
+      it can use your memory.
+    copy: Copy
+    revoke: Revoke
+    no_keys: No keys yet. Get your memory link on the home page, or create a key here.
     js:
       delete_confirm: Delete all saved memories in "%{name}"? This cannot be undone.
       delete_error: Could not delete the data. Please try again.
+      label_prompt: Name this key (optional), e.g. "kitchen laptop"
+      create_error: Could not create the key. Please try again.
+      revoke_confirm: >-
+        Revoke this key? Its memory link stops working right away, and agents
+        using it lose access to your memory.
+      revoke_error: Could not revoke the key. Please try again.
   # Documentation / integration guides (templates/docs/*). English is the source;
   # other locales fall back here (like plans/account). Long-form guide prose lives
   # in the app.services.docs registry, not in translations, for now.
@@ -116,3 +144,6 @@ en:
     copied: Copied!
     link_error: Could not create your memory link. Please try again.
     checkout_error: Could not start checkout. Please try again.
+    regen_confirm: >-
+      You already have a memory link. Getting a new one stops your old link from
+      working - agents still using it will lose access. Continue?

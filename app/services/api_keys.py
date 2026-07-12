@@ -5,7 +5,8 @@ user. We generate an opaque token with an ``rs_`` prefix so keys are recognisabl
 in logs/configs.
 
 **The token is never stored.** At rest we keep only its SHA-256 hash
-(``key_hash``) plus a short, non-secret ``key_prefix`` for display. Lookups hash
+(``key_hash``) plus short, non-secret display hints (``key_prefix`` and
+``key_last4``, joined by :func:`masked`). Lookups hash
 the presented token and match on ``key_hash``; the plaintext is returned exactly
 once, from ``add_api_key``, for the caller to show the user. A database dump
 therefore leaks no usable credentials, and a lost key can only be replaced, never
@@ -28,9 +29,11 @@ from app.services.mongo import get_db, utcnow
 
 KEY_PREFIX = "rs_"
 
-# Chars of the token kept in the clear for display ("rs_" + 4 random chars). Long
-# enough to tell keys apart in a list, far too short to be used as a credential.
+# Chars of the token kept in the clear for display: the head ("rs_" + 4 random
+# chars) and the last 4, rendered as "rs_ab12…wxyz" (see `masked`). Long enough
+# to tell keys apart in a list, far too short to be used as a credential.
 _PREVIEW_LEN = len(KEY_PREFIX) + 4
+_LAST_LEN = 4
 
 # Fresh tokens to try when an insert hits the unique index on ``key_hash``. A
 # collision is astronomically rare at the current token length, but when it
@@ -45,6 +48,17 @@ def generate_key() -> str:
 def hash_key(key: str) -> str:
     """The at-rest digest of a token (also used to look a presented key up)."""
     return hashlib.sha256(key.encode()).hexdigest()
+
+
+def masked(doc: dict) -> str:
+    """The display form of a stored key: ``rs_ab12…wxyz``.
+
+    Built only from the non-secret hints kept at rest, so it can be shown any
+    number of times. Docs minted before ``key_last4`` existed fall back to the
+    prefix alone (``rs_ab12…``).
+    """
+    last4 = doc.get("key_last4")
+    return f"{doc['key_prefix']}…{last4}" if last4 else f"{doc['key_prefix']}…"
 
 
 def add_api_key(user_id: str, *, label: str | None = None, db: Database | None = None) -> dict:
@@ -63,8 +77,10 @@ def add_api_key(user_id: str, *, label: str | None = None, db: Database | None =
             "user_id": user_id,
             "key_hash": hash_key(token),
             "key_prefix": token[:_PREVIEW_LEN],
+            "key_last4": token[-_LAST_LEN:],
             "label": label,
             "created_at": utcnow(),
+            "last_used_at": None,
         }
         try:
             db.api_keys.insert_one(doc)
@@ -125,7 +141,23 @@ def list_api_keys(user_id: str, *, db: Database | None = None) -> list[dict]:
     return list(db.api_keys.find({"user_id": user_id}).sort("created_at", -1))
 
 
-def get_by_key(key: str, *, db: Database | None = None) -> dict | None:
-    """Resolve a presented token to its stored document (authenticates requests)."""
+def get_labeled_key(user_id: str, label: str, *, db: Database | None = None) -> dict | None:
+    """The user's key carrying ``label``, if any (e.g. the "default" link key)."""
     db = db if db is not None else get_db()
-    return db.api_keys.find_one({"key_hash": hash_key(key)})
+    return db.api_keys.find_one({"user_id": user_id, "label": label})
+
+
+def get_by_key(key: str, *, record_use: bool = False, db: Database | None = None) -> dict | None:
+    """Resolve a presented token to its stored document (authenticates requests).
+
+    ``record_use=True`` stamps ``last_used_at`` on a successful match - set it on
+    the real auth gates (the MCP endpoint) so the account page can show when a
+    key last authenticated an agent, but not on incidental lookups.
+    """
+    db = db if db is not None else get_db()
+    doc = db.api_keys.find_one({"key_hash": hash_key(key)})
+    if doc is not None and record_use:
+        now = utcnow()
+        db.api_keys.update_one({"_id": doc["_id"]}, {"$set": {"last_used_at": now}})
+        doc["last_used_at"] = now
+    return doc

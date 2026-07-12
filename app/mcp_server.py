@@ -340,8 +340,10 @@ class _MCPEndpoint:
         key = _extract_key(Request(scope, receive))
         # Same 404 as the .md instructions route - an invalid link should look
         # identical whichever way it is probed. Lookup is blocking pymongo.
+        # This is the credential's real auth gate, so a match also stamps the
+        # key's last_used_at (surfaced on the account page).
         key_doc = await anyio.to_thread.run_sync(
-            partial(api_keys.get_by_key, key, db=get_database())
+            partial(api_keys.get_by_key, key, record_use=True, db=get_database())
         ) if key else None
         if key_doc is None:
             response = JSONResponse({"detail": "unknown memory link"}, status_code=404)

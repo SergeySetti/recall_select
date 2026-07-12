@@ -21,6 +21,7 @@ pl:
     sign_out: Wyloguj się
     link_label: Twój link do pamięci - przekaż go swojemu agentowi
     copy_button: Skopiuj link
+    regen_button: Pobierz nowy link
     help_signed_in: >-
       Twój link jest gotowy - kliknij <span class="rs-accent">%{action}</span>,
       aby go skopiować, a następnie wklej go do swojego agenta. Trzymaj go w
@@ -46,3 +47,6 @@ pl:
   js:
     copied: Skopiowano!
     link_error: Nie udało się utworzyć linku do pamięci. Spróbuj ponownie.
+    regen_confirm: >-
+      Masz już link do pamięci. Nowy link wyłączy stary - agenci, którzy z niego
+      korzystają, stracą dostęp. Kontynuować?

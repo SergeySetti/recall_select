@@ -75,8 +75,12 @@ first memory is stored into a `(user, project)` pair.
   - `users.py` - `add_user`, `get_user`, `get_user_by_email`, `update_user`.
   - `api_keys.py` - user-bounded keys, **stored as a SHA-256 hash** (the plaintext
     is returned once, from `add_api_key`, and never persisted): `add_api_key`,
-    `delete_api_key`, `delete_user_keys`, `list_api_keys`, `get_by_key` (hashes
-    the presented token and matches on the digest).
+    `delete_api_key`, `delete_user_keys`, `list_api_keys`, `get_labeled_key`,
+    `get_by_key` (hashes the presented token and matches on the digest;
+    `record_use=True` on the MCP auth gate stamps `last_used_at`). At rest each
+    key also keeps non-secret display hints - `key_prefix` + `key_last4`,
+    rendered by `masked()` as `rs_ab12…wxyz` - so keys can be listed and told
+    apart without ever re-exposing the secret.
   - `projects.py` - `add_project`, `get_project`, `list_projects`,
     `update_project`, `delete_project`.
   - `collections.py` - the `(user, project) ↔ Qdrant collection` registry.
@@ -108,8 +112,9 @@ first memory is stored into a `(user, project)` pair.
     mapped to **HTTP 429** by `app/main.py`; the MCP transport surfaces it as a
     tool error. Separate from the all-time `collections.calls_count`.
   - `account.py` - the read-only snapshot the signed-in `/account` page shows
-    (plan, monthly usage, per-project stored counts), composed from
-    `billing`/`usage`/`projects`/`collections`.
+    (plan, monthly usage, per-project stored counts, and the API-key list in
+    masked form with created/last-used dates), composed from
+    `billing`/`usage`/`projects`/`collections`/`api_keys`.
   - `docs.py` - content for the public `/docs` integration guides. Builds the MCP
     client config in one place (`mcp_config` / `mcp_config_json`), reused by both
     the docs pages **and** `app/api/connect.py`'s per-key `.md`, so the two never
@@ -153,9 +158,14 @@ Set via environment (a local `.env` is auto-loaded; never commit it - see
 
 ### Auth (Google sign-in)
 
-Sign-in gates the memory link: a user signs in with Google, then clicks **Generate
-my memory link** to provision their default project + collection + API key and get
-the URL to feed an agent. To set up the Google credentials:
+Sign-in gates the memory link: a user signs in with Google, then clicks **Copy
+memory link** to provision their default project + collection + API key and get
+the URL to feed an agent. The secret is shown exactly once (only its hash is
+stored): afterwards the landing page shows the link **masked** (via
+`GET /api/me/link`) and the button turns into an explicit, confirmed
+"get a new link" - regeneration invalidates the old link, never silently.
+Keys are managed on `/account`: masked list, created/last-used dates,
+create-with-label (reveal-once), and revoke. To set up the Google credentials:
 
 1. **Google Cloud Console → APIs & Services → OAuth consent screen** - configure
    it (External; add your email as a test user while unverified).

@@ -188,6 +188,8 @@ async def account_page(request: Request):
             "user": user,
             "user_id": user["_id"],
             "summary": account.overview(user, db=db),
+            # For building the reveal-once memory link after a key is created.
+            "public_base_url": me.PUBLIC_BASE_URL,
             "t": translator(locale),
             "locale": locale,
             "locales": SUPPORTED_LOCALES,

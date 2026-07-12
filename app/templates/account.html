@@ -61,6 +61,13 @@
     .rs-progress { background-color: rgba(232, 220, 192, 0.12); height: 0.6rem; }
     .rs-progress .progress-bar { background-color: var(--rs-accent); }
     .btn-outline-danger { --bs-btn-color: #ff8a80; --bs-btn-border-color: rgba(255, 138, 128, 0.5); }
+    /* API keys: masked tokens + the reveal-once banner. */
+    .rs-key {
+      color: var(--rs-text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      word-break: break-all;
+    }
+    .rs-reveal { border-color: var(--rs-accent); background: rgba(255, 122, 26, 0.1); }
   </style>
 </head>
 <body>
@@ -153,6 +160,69 @@
       {% else %}
       <p class="text-muted-beige">{{ t("rs.account.no_projects") }}</p>
       {% endif %}
+
+      <!-- API keys: masked list, reveal-once creation, revoke. The plaintext is
+           never at rest, so the table can only ever show the masked hint. -->
+      <div class="d-flex justify-content-between align-items-baseline mt-5 mb-1">
+        <h2 class="h5 fw-bold mb-0">{{ t("rs.account.keys_heading") }}</h2>
+        <button id="new-key-btn" class="btn btn-rs btn-sm px-3" type="button" onclick="createKey(this)">
+          {{ t("rs.account.new_key") }}
+        </button>
+      </div>
+      <p class="small text-muted-beige mb-3">{{ t("rs.account.keys_intro") }}</p>
+
+      <!-- Reveal-once banner: filled by createKey(), shown exactly one page-life. -->
+      <div id="key-reveal" class="rs-card rs-reveal p-3 mb-3 d-none">
+        <div class="fw-semibold mb-1">{{ t("rs.account.reveal_heading") }}</div>
+        <div class="d-flex gap-2 align-items-stretch mb-1">
+          <code id="key-reveal-link" class="rs-key flex-grow-1 d-flex align-items-center"></code>
+          <button class="btn btn-rs btn-sm px-3 text-nowrap" type="button" onclick="copyRevealedKey(this)">
+            {{ t("rs.account.copy") }}
+          </button>
+        </div>
+        <div class="small text-muted-beige">{{ t("rs.account.reveal_note") }}</div>
+      </div>
+
+      {% if summary.keys %}
+      <table class="table rs-table align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col">{{ t("rs.account.col_key") }}</th>
+            <th scope="col">{{ t("rs.account.col_label") }}</th>
+            <th scope="col">{{ t("rs.account.col_created") }}</th>
+            <th scope="col">{{ t("rs.account.col_last_used") }}</th>
+            <th scope="col"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for k in summary.keys %}
+          <tr>
+            <td><code class="rs-key">{{ k.masked }}</code></td>
+            <td>
+              {% if k.is_default %}
+              <span class="badge rs-badge-current">{{ t("rs.account.memory_link_badge") }}</span>
+              {% else %}
+              {{ k.label or "-" }}
+              {% endif %}
+            </td>
+            <td class="text-muted-beige">{{ k.created_at.strftime("%Y-%m-%d") }}</td>
+            <td class="text-muted-beige">
+              {{ k.last_used_at.strftime("%Y-%m-%d %H:%M") if k.last_used_at else t("rs.account.never_used") }}
+            </td>
+            <td class="text-end">
+              <button class="btn btn-outline-danger btn-sm px-3"
+                      type="button"
+                      onclick="revokeKey('{{ k.id }}', this)">
+                {{ t("rs.account.revoke") }}
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted-beige">{{ t("rs.account.no_keys") }}</p>
+      {% endif %}
     </div>
   </main>
 
@@ -160,9 +230,16 @@
 
   <script>
     const USER_ID = {{ user_id | tojson }};
+    const PUBLIC_BASE = {{ public_base_url | tojson }};
     const I18N = {
       deleteConfirm: {{ t("rs.account.js.delete_confirm") | tojson }},
       deleteError: {{ t("rs.account.js.delete_error") | tojson }},
+      labelPrompt: {{ t("rs.account.js.label_prompt") | tojson }},
+      createError: {{ t("rs.account.js.create_error") | tojson }},
+      revokeConfirm: {{ t("rs.account.js.revoke_confirm") | tojson }},
+      revokeError: {{ t("rs.account.js.revoke_error") | tojson }},
+      copied: {{ t("rs.js.copied") | tojson }},
+      copyError: {{ t("rs.docs.copy_error") | tojson }},
     };
 
     // Wipe every saved memory in one project (tears down its store), then reload
@@ -181,6 +258,59 @@
         window.location.reload();
       } catch (e) {
         alert(I18N.deleteError);
+        btn.disabled = false;
+      }
+    }
+
+    // Mint a new key and reveal it exactly once (the secret is stored hashed and
+    // can never be shown again). The reveal banner survives until the page is
+    // left; the table below still lists the key masked after a reload.
+    async function createKey(btn) {
+      const label = prompt(I18N.labelPrompt);
+      if (label === null) return; // cancelled
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/users/' + encodeURIComponent(USER_ID) + '/api-keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label: label.trim() || null }),
+        });
+        if (!resp.ok) throw new Error('create failed: ' + resp.status);
+        const data = await resp.json();
+        document.getElementById('key-reveal-link').textContent =
+          PUBLIC_BASE + '/m/' + data.key + '.md';
+        document.getElementById('key-reveal').classList.remove('d-none');
+      } catch (e) {
+        alert(I18N.createError);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function copyRevealedKey(btn) {
+      const label = btn.textContent;
+      try {
+        await navigator.clipboard.writeText(
+          document.getElementById('key-reveal-link').textContent.trim()
+        );
+        btn.textContent = I18N.copied;
+        setTimeout(() => { btn.textContent = label; }, 1500);
+      } catch (e) {
+        alert(I18N.copyError);
+      }
+    }
+
+    // Revoke = delete: the key stops authenticating immediately, and any memory
+    // link built on it stops working.
+    async function revokeKey(keyId, btn) {
+      if (!confirm(I18N.revokeConfirm)) return;
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/api-keys/' + encodeURIComponent(keyId), { method: 'DELETE' });
+        if (!resp.ok && resp.status !== 404) throw new Error('revoke failed: ' + resp.status);
+        window.location.reload();
+      } catch (e) {
+        alert(I18N.revokeError);
         btn.disabled = false;
       }
     }

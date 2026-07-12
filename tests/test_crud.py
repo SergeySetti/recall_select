@@ -39,6 +39,13 @@ def test_api_key_add_list_delete(mongo_db):
     key = api_keys.add_api_key(user["_id"], label="laptop", db=mongo_db)
     assert key["key"].startswith("rs_")
     assert key["user_id"] == user["_id"]
+    # Display hints kept at rest: head + tail of the token, never the middle.
+    assert key["key_prefix"] == key["key"][: len(key["key_prefix"])]
+    assert key["key_last4"] == key["key"][-4:]
+    assert key["last_used_at"] is None
+    assert api_keys.masked(key) == f"{key['key_prefix']}…{key['key_last4']}"
+    # The masked form must not be a usable credential.
+    assert api_keys.masked(key) != key["key"]
 
     listed = api_keys.list_api_keys(user["_id"], db=mongo_db)
     assert [k["_id"] for k in listed] == [key["_id"]]
@@ -48,6 +55,33 @@ def test_api_key_add_list_delete(mongo_db):
     assert api_keys.list_api_keys(user["_id"], db=mongo_db) == []
     # Deleting again is a no-op.
     assert api_keys.delete_api_key(key["_id"], db=mongo_db) is False
+
+
+def test_api_key_masked_tolerates_legacy_docs(mongo_db):
+    # Keys minted before key_last4 existed still render (prefix-only fallback).
+    assert api_keys.masked({"key_prefix": "rs_ab12"}) == "rs_ab12…"
+
+
+def test_get_by_key_record_use_stamps_last_used(mongo_db):
+    user = users.add_user("use@example.com", db=mongo_db)
+    key = api_keys.add_api_key(user["_id"], db=mongo_db)
+
+    # A plain lookup (e.g. an ownership check) leaves the stamp alone.
+    api_keys.get_by_key(key["key"], db=mongo_db)
+    assert api_keys.get_api_key(key["_id"], db=mongo_db)["last_used_at"] is None
+
+    # The auth gate records the use, both in the return and at rest.
+    resolved = api_keys.get_by_key(key["key"], record_use=True, db=mongo_db)
+    assert resolved["last_used_at"] is not None
+    assert api_keys.get_api_key(key["_id"], db=mongo_db)["last_used_at"] is not None
+
+
+def test_get_labeled_key(mongo_db):
+    user = users.add_user("labeled@example.com", db=mongo_db)
+    assert api_keys.get_labeled_key(user["_id"], "default", db=mongo_db) is None
+    key = api_keys.add_api_key(user["_id"], label="default", db=mongo_db)
+    found = api_keys.get_labeled_key(user["_id"], "default", db=mongo_db)
+    assert found is not None and found["_id"] == key["_id"]
 
 
 def test_api_key_collision_retries_with_fresh_token(mongo_db, monkeypatch):

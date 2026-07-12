@@ -113,8 +113,14 @@ def test_api_key_flow(client):
     key = created.json()
     assert key["key"].startswith("rs_") and key["user_id"] == uid
 
+    # Listing never re-exposes the secret: masked display hint only.
     listed = api.get(f"/api/users/{uid}/api-keys").json()
     assert [k["id"] for k in listed] == [key["id"]]
+    row = listed[0]
+    assert "key" not in row and "key_hash" not in row and "key_last4" not in row
+    assert row["key_masked"].startswith("rs_") and "…" in row["key_masked"]
+    assert row["key_masked"] != key["key"]
+    assert row["last_used_at"] is None
 
     assert api.delete(f"/api/api-keys/{key['id']}").status_code == 204
     assert api.get(f"/api/users/{uid}/api-keys").json() == []
@@ -155,6 +161,30 @@ def test_generate_link_requires_sign_in(client):
     api, _, _ = client
     # No session → the "me" endpoints 401.
     assert api.post("/api/me/link").status_code == 401
+    assert api.get("/api/me/link").status_code == 401
+
+
+def test_link_status_is_masked_and_never_rotates(client):
+    api, db, _ = client
+    _sign_in(db, email="status@example.com")
+
+    # Before any link exists: a plain "no link yet" answer.
+    assert api.get("/api/me/link").json() == {
+        "exists": False, "masked_link": None, "created_at": None, "last_used_at": None,
+    }
+
+    key = api.post("/api/me/link").json()["api_key"]
+
+    status = api.get("/api/me/link").json()
+    assert status["exists"] is True
+    # Masked form only - the plaintext must never appear in a GET.
+    assert key not in status["masked_link"]
+    assert "…" in status["masked_link"] and status["masked_link"].endswith(".md")
+    assert status["created_at"] is not None
+
+    # Reading the status must not rotate the key: the link still resolves.
+    from app.services import api_keys
+    assert api_keys.get_by_key(key, db=db) is not None
 
 
 def test_generate_link_provisions_workspace(client):
