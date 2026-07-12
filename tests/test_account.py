@@ -22,7 +22,7 @@ def test_overview_free_user_no_projects(mongo_db):
     assert summary["projects_used"] == 0
     assert summary["projects"] == []
     assert summary["memories_total"] == 0
-    assert summary["keys"] == []
+    assert summary["api_keys"] == []
 
 
 def test_overview_lists_keys_masked(mongo_db):
@@ -31,7 +31,7 @@ def test_overview_lists_keys_masked(mongo_db):
     link_key = api_keys.add_api_key(uid, label="default", db=mongo_db)
     extra_key = api_keys.add_api_key(uid, label="kitchen laptop", db=mongo_db)
 
-    rows = account.overview(user, db=mongo_db)["keys"]
+    rows = account.overview(user, db=mongo_db)["api_keys"]
 
     by_id = {row["id"]: row for row in rows}
     assert set(by_id) == {link_key["_id"], extra_key["_id"]}

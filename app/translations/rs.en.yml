@@ -36,6 +36,11 @@ en:
     help_signed_out: >-
       Click <span class="rs-accent">%{action}</span> to sign in with Google and
       get your personal link.
+    # Shown when a link already exists: only its masked form can be displayed.
+    help_link_exists: >-
+      You already have a memory link - for safety only part of it is shown here.
+      Lost it? Click <span class="rs-accent">%{action}</span>; the old link then
+      stops working.
     pricing: Pricing
     language: Language
   # One-line benefits shown in the feature row under the hero (v2 draft).
@@ -79,6 +84,9 @@ en:
     calls_unlimited: "%{used} memory actions used"
     calls_remaining: "%{left} left"
     calls_reset: Resets at the start of next month.
+    # Sidebar section labels ("API keys" reuses keys_heading below).
+    nav_projects: Projects
+    nav_billing: Billing
     projects_heading: Your projects
     projects_metered: "%{used} of %{total} in use"
     projects_unlimited: "%{used} in use"

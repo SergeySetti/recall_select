@@ -30,6 +30,10 @@ es:
     help_signed_out: >-
       Haz clic en <span class="rs-accent">%{action}</span> para iniciar sesión con
       Google y obtener tu enlace personal.
+    help_link_exists: >-
+      Ya tienes un enlace de memoria - por seguridad aquí solo se muestra una
+      parte. ¿Lo perdiste? Haz clic en <span class="rs-accent">%{action}</span>;
+      el enlace antiguo dejará de funcionar.
     pricing: Precios
     language: Idioma
   features:

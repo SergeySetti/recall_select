@@ -130,7 +130,7 @@
             </a>
             {% endif %}
           </div>
-          <p class="small text-muted-beige mb-0">
+          <p id="link-help" class="small text-muted-beige mb-0">
             {% if user %}
             {{ t("rs.body.help_signed_in", action=t("rs.body.copy_button")) | safe }}
             {% else %}
@@ -197,6 +197,10 @@
       linkError: {{ t("rs.js.link_error") | tojson }},
       regenButton: {{ t("rs.body.regen_button") | tojson }},
       regenConfirm: {{ t("rs.js.regen_confirm") | tojson }},
+      // Trusted server-side translations (may carry accent <span>s) - safe for
+      // the innerHTML swaps below; nothing user-supplied is interpolated.
+      helpExists: {{ t("rs.body.help_link_exists", action=t("rs.body.regen_button")) | tojson }},
+      helpRevealed: {{ t("rs.body.help_signed_in", action=t("rs.body.copy_button")) | tojson }},
     };
 
     const linkEl = document.getElementById('memory-link');
@@ -214,6 +218,9 @@
       linkEl.textContent = data.link;
       linkEl.classList.remove('is-placeholder');
       maskedShown = false;
+      // Back to the "copy it and paste it into your agent" guidance.
+      document.getElementById('copy-btn').textContent = {{ t("rs.body.copy_button") | tojson }};
+      document.getElementById('link-help').innerHTML = I18N.helpRevealed;
       return data.link;
     }
 
@@ -252,6 +259,7 @@
           linkEl.textContent = status.masked_link;
           maskedShown = true;
           document.getElementById('copy-btn').textContent = I18N.regenButton;
+          document.getElementById('link-help').innerHTML = I18N.helpExists;
         })
         .catch(() => {}); // status is cosmetic - the placeholder stands in.
     }

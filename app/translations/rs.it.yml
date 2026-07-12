@@ -30,6 +30,10 @@ it:
     help_signed_out: >-
       Clicca su <span class="rs-accent">%{action}</span> per accedere con Google
       e ottenere il tuo link personale.
+    help_link_exists: >-
+      Hai già un link di memoria - per sicurezza qui ne viene mostrata solo una
+      parte. L'hai perso? Clicca su <span class="rs-accent">%{action}</span>;
+      il vecchio link smetterà di funzionare.
     pricing: Prezzi
     language: Lingua
   features:

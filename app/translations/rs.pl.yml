@@ -29,6 +29,10 @@ pl:
     help_signed_out: >-
       Kliknij <span class="rs-accent">%{action}</span>, aby zalogować się przez
       Google i otrzymać swój osobisty link.
+    help_link_exists: >-
+      Masz już link do pamięci - ze względów bezpieczeństwa pokazujemy tu tylko
+      jego część. Zgubiłeś go? Kliknij <span class="rs-accent">%{action}</span>;
+      stary link przestanie działać.
     pricing: Cennik
     language: Język
   features:

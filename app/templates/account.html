@@ -68,11 +68,23 @@
       word-break: break-all;
     }
     .rs-reveal { border-color: var(--rs-accent); background: rgba(255, 122, 26, 0.1); }
+    /* Sidebar nav: vertical on md+, horizontal pills on small screens. */
+    .rs-nav .nav-link {
+      color: rgba(232, 220, 192, 0.7);
+      border-radius: 0.5rem;
+      padding: 0.45rem 0.9rem;
+    }
+    .rs-nav .nav-link:hover { color: var(--rs-accent); }
+    .rs-nav .nav-link.active {
+      color: var(--rs-accent);
+      background: rgba(255, 122, 26, 0.12);
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
   <main class="flex-grow-1">
-    <div class="container py-5" style="max-width: 720px;">
+    <div class="container py-5" style="max-width: 960px;">
       <div class="d-flex justify-content-between align-items-center mb-4">
         <a href="/" class="d-flex align-items-center gap-3 text-decoration-none" style="color: inherit;">
           <img src="/static/images/logo-dog.png" alt="" width="48" height="34" class="flex-shrink-0">
@@ -87,7 +99,22 @@
       <h1 class="h3 fw-bold mb-1">{{ t("rs.account.heading") }}</h1>
       <p class="text-muted-beige mb-4">{{ user.email or t("rs.body.your_account") }}</p>
 
-      <!-- Plan + monthly usage -->
+      <div class="row g-4">
+        <!-- Sidebar: one link per section; the URL hash is the section state, so
+             reloads (delete data, revoke) come back to the same section. -->
+        <nav class="col-md-3">
+          <ul class="nav nav-pills flex-md-column flex-row gap-1 rs-nav sticky-md-top" style="top: 1rem;">
+            <li class="nav-item"><a class="nav-link" href="#projects" data-section="projects">{{ t("rs.account.nav_projects") }}</a></li>
+            <li class="nav-item"><a class="nav-link" href="#api-keys" data-section="api-keys">{{ t("rs.account.keys_heading") }}</a></li>
+            <li class="nav-item"><a class="nav-link" href="#billing" data-section="billing">{{ t("rs.account.nav_billing") }}</a></li>
+          </ul>
+        </nav>
+
+        <div class="col-md-9">
+
+      <!-- Billing: plan + monthly usage -->
+      <section id="section-billing" class="d-none">
+      <h2 class="h5 fw-bold mb-2">{{ t("rs.account.nav_billing") }}</h2>
       <div class="rs-card p-4 mb-4">
         <div class="d-flex justify-content-between align-items-start mb-3">
           <div>
@@ -112,8 +139,10 @@
         {% endif %}
         <div class="small text-muted-beige">{{ t("rs.account.calls_reset") }}</div>
       </div>
+      </section>
 
       <!-- Projects + data deletion -->
+      <section id="section-projects">
       <div class="d-flex justify-content-between align-items-baseline mb-2">
         <h2 class="h5 fw-bold mb-0">{{ t("rs.account.projects_heading") }}</h2>
         <span class="small text-muted-beige">
@@ -160,10 +189,12 @@
       {% else %}
       <p class="text-muted-beige">{{ t("rs.account.no_projects") }}</p>
       {% endif %}
+      </section>
 
       <!-- API keys: masked list, reveal-once creation, revoke. The plaintext is
            never at rest, so the table can only ever show the masked hint. -->
-      <div class="d-flex justify-content-between align-items-baseline mt-5 mb-1">
+      <section id="section-api-keys" class="d-none">
+      <div class="d-flex justify-content-between align-items-baseline mb-1">
         <h2 class="h5 fw-bold mb-0">{{ t("rs.account.keys_heading") }}</h2>
         <button id="new-key-btn" class="btn btn-rs btn-sm px-3" type="button" onclick="createKey(this)">
           {{ t("rs.account.new_key") }}
@@ -183,7 +214,7 @@
         <div class="small text-muted-beige">{{ t("rs.account.reveal_note") }}</div>
       </div>
 
-      {% if summary.keys %}
+      {% if summary.api_keys %}
       <table class="table rs-table align-middle mb-0">
         <thead>
           <tr>
@@ -195,7 +226,7 @@
           </tr>
         </thead>
         <tbody>
-          {% for k in summary.keys %}
+          {% for k in summary.api_keys %}
           <tr>
             <td><code class="rs-key">{{ k.masked }}</code></td>
             <td>
@@ -223,6 +254,10 @@
       {% else %}
       <p class="text-muted-beige">{{ t("rs.account.no_keys") }}</p>
       {% endif %}
+      </section>
+
+        </div><!-- /.col-md-9 -->
+      </div><!-- /.row -->
     </div>
   </main>
 
@@ -241,6 +276,20 @@
       copied: {{ t("rs.js.copied") | tojson }},
       copyError: {{ t("rs.docs.copy_error") | tojson }},
     };
+
+    // Sidebar sections. The hash is the whole state (#projects / #api-keys /
+    // #billing), so plain <a href="#…"> clicks, reloads after delete/revoke,
+    // and shared links all land on the right section. Projects is the default.
+    const SECTIONS = ['projects', 'api-keys', 'billing'];
+    function showSection() {
+      const name = SECTIONS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'projects';
+      for (const s of SECTIONS) {
+        document.getElementById('section-' + s).classList.toggle('d-none', s !== name);
+        document.querySelector('[data-section="' + s + '"]').classList.toggle('active', s === name);
+      }
+    }
+    window.addEventListener('hashchange', showSection);
+    showSection();
 
     // Wipe every saved memory in one project (tears down its store), then reload
     // so the usage figures and this row reflect the empty state.

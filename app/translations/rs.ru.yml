@@ -30,6 +30,10 @@ ru:
     help_signed_out: >-
       Нажмите <span class="rs-accent">%{action}</span>, чтобы войти через Google и
       получить личную ссылку.
+    help_link_exists: >-
+      У вас уже есть ссылка на память - для безопасности здесь показана лишь её
+      часть. Потеряли её? Нажмите <span class="rs-accent">%{action}</span>;
+      старая ссылка перестанет работать.
     pricing: Цены
     language: Язык
   features:

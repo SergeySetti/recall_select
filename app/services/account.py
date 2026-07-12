@@ -25,9 +25,11 @@ def overview(user: dict, *, db: Database | None = None) -> dict:
     ``points_count`` (memories) and a ``has_data`` flag - true when a collection is
     registered, i.e. when "Delete data" has something to tear down.
 
-    ``keys`` carries only display-safe fields (the secret is never at rest, see
-    ``api_keys``): the masked form, label, created / last-used timestamps, and an
-    ``is_default`` flag marking the key behind the user's memory link.
+    ``api_keys`` carries only display-safe fields (the secret is never at rest,
+    see the ``api_keys`` service): the masked form, label, created / last-used
+    timestamps, and an ``is_default`` flag marking the key behind the user's
+    memory link. (Named ``api_keys``, not ``keys`` - Jinja's ``summary.keys``
+    would resolve to ``dict.keys``.)
     """
     db = db if db is not None else get_db()
     user_id = user["_id"]
@@ -78,5 +80,5 @@ def overview(user: dict, *, db: Database | None = None) -> dict:
         "projects_used": len(project_rows),
         "projects": project_rows,
         "memories_total": memories_total,
-        "keys": key_rows,
+        "api_keys": key_rows,
     }

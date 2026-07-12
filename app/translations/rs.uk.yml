@@ -30,6 +30,10 @@ uk:
     help_signed_out: >-
       Натисніть <span class="rs-accent">%{action}</span>, щоб увійти через Google
       та отримати особисте посилання.
+    help_link_exists: >-
+      У вас уже є посилання на пам'ять - задля безпеки тут показано лише його
+      частину. Загубили його? Натисніть <span class="rs-accent">%{action}</span>;
+      старе посилання перестане працювати.
     pricing: Ціни
     language: Мова
   features:
