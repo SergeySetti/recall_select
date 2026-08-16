@@ -102,7 +102,11 @@ first memory is stored into a `(user, project)` pair.
   - `billing.py` - the plan catalogue and the payment record keyed by Monobank's
     `invoiceId`. `record_pending` on checkout; `apply_webhook` flips the buyer's
     `tier` **once** on `success` (idempotent against retries/duplicates);
-    `reconcile` settles what the webhook missed (below). Also the
+    `reconcile` settles what the webhook missed (below). A tier is **time-limited**:
+    `grant_tier` is the single place entitlement is ever handed out (paid invoice
+    or owner goodwill), writing `tier_expires_at` plus an audit row in
+    `tier_grants`; `effective_tier(user)` is what every check must read, since a
+    stored `paid_2x` whose date has passed is a free account. Also the
     single source of truth for per-tier allowances: `call_allowance(tier)` /
     `project_allowance(tier)` (`None` = unlimited; unknown tiers fall back to free).
   - `usage.py` - the monthly call meter and the price-model gate. Every accepted
@@ -142,6 +146,14 @@ idempotent against each other - whichever lands first grants the tier, the other
 is a no-op. A row in `payments` is written when checkout *starts*, so `created`
 means "opened the payment page", not "paid"; `/admin/payments` shows that
 distinction explicitly.
+
+**A purchase buys one month** (`SUBSCRIPTION_DAYS`), not forever: `grant_tier`
+stamps `tier_expires_at`, the same background loop returns lapsed accounts to
+free (`downgrade_expired`), and the account page shows the date the plan runs
+out. Nothing renews automatically yet - the user buys again, and buying while
+still in credit *extends* the window rather than restarting it. Entitlement is
+read through `effective_tier`, so an expired grant stops paying out immediately
+even before the sweep rewrites the stored field.
 
 Every CRUD function takes an optional `db=`/`client=` argument so it can be driven
 in tests without a live backend.

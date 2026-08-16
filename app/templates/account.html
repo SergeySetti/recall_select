@@ -120,6 +120,12 @@
           <div>
             <div class="text-muted-beige small text-uppercase">{{ t("rs.account.plan") }}</div>
             <div class="h5 fw-bold mb-0">{{ summary.plan_name }}</div>
+            {% if summary.tier_expires_at %}
+              {# A paid tier is bought by the month; say plainly when it lapses. #}
+              <div class="text-muted-beige small">
+                {{ t("rs.account.plan_until", date=summary.tier_expires_at.strftime("%d.%m.%Y")) }}
+              </div>
+            {% endif %}
           </div>
           <a class="btn btn-rs btn-sm px-3" href="/plans">{{ t("rs.account.upgrade") }}</a>
         </div>

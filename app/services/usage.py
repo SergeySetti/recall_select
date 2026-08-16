@@ -95,7 +95,8 @@ def check_call_allowed(user_id: str, *, db: Database | None = None) -> None:
     """
     db = db if db is not None else get_db()
     user = users.get_user(user_id, db=db)
-    tier = user["tier"] if user else billing.FREE_TIER
+    # effective_tier, not user["tier"]: a paid grant that has run out is free.
+    tier = billing.effective_tier(user)
     allowance = billing.call_allowance(tier)
     if allowance is None:
         return

@@ -18,7 +18,7 @@ Pure I/O - ``db`` is injected so this is testable without live backends.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from pymongo import ReturnDocument
@@ -38,6 +38,11 @@ TERMINAL_STATUSES = frozenset({PAID_STATUS, "failure", "reversed", "expired"})
 # How stale an in-flight payment must be before reconciliation pulls its status.
 # Long enough that the ordinary webhook has had every chance to arrive first.
 RECONCILE_AFTER_SECONDS = 300
+
+# Every price in PLANS is *per month*, so a purchase buys this many days of the
+# tier. Nothing renews automatically yet: when the grant runs out the account
+# falls back to free and the user buys again.
+SUBSCRIPTION_DAYS = 30
 
 
 # The baseline every account starts on; shown (unpurchasable) on the plans page.
@@ -101,6 +106,123 @@ PLANS: dict[str, Plan] = {
 
 def get_plan(plan_id: str) -> Plan | None:
     return PLANS.get(plan_id)
+
+
+# --- Tier grants and their expiry ------------------------------------------
+# A paid tier is time-limited: ``tier`` says *what* was bought and
+# ``tier_expires_at`` says *until when*. Both live on the user document, and
+# ``effective_tier`` is the only honest way to read them - a stored ``paid_2x``
+# whose date has passed is a free account. ``None`` expiry means open-ended (a
+# permanent gift or a legacy row from before this existed).
+
+
+def _as_aware(value: datetime | None) -> datetime | None:
+    """Normalise a stored timestamp to timezone-aware UTC.
+
+    pymongo hands back **naive** datetimes by default while everything we write
+    is aware, and comparing the two raises. Anything read out of Mongo has to
+    come through here before it meets ``utcnow()``.
+    """
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def tier_expiry(user: dict | None) -> datetime | None:
+    """When this user's paid tier runs out (aware UTC), or None if it doesn't."""
+    if not user:
+        return None
+    return _as_aware(user.get("tier_expires_at"))
+
+
+def effective_tier(user: dict | None) -> str:
+    """The tier actually in force right now - free once a grant has run out.
+
+    Read this rather than ``user["tier"]`` anywhere entitlement is decided; the
+    stored field is the *purchase*, this is the *entitlement*.
+    """
+    if not user:
+        return FREE_TIER
+    tier = user.get("tier", FREE_TIER)
+    if tier == FREE_TIER:
+        return FREE_TIER
+    expires = _as_aware(user.get("tier_expires_at"))
+    if expires is None:
+        return tier
+    return tier if expires > utcnow() else FREE_TIER
+
+
+def grant_tier(
+    user_id: str,
+    tier: str,
+    *,
+    days: int | None = SUBSCRIPTION_DAYS,
+    reason: str,
+    source: str,
+    db: Database | None = None,
+) -> dict | None:
+    """Give a user a tier for ``days`` (``None`` = open-ended) and log why.
+
+    The single place a tier is ever granted - by a paid invoice
+    (``apply_webhook``) or by hand as goodwill - so every change to entitlement
+    leaves a row in ``tier_grants`` saying who, what, how long, and on what
+    grounds. Buying the same tier again *extends* an unexpired grant instead of
+    truncating it to a fresh window, so paying early never costs the buyer days.
+
+    Returns the updated user document, or None if there is no such user.
+    """
+    db = db if db is not None else get_db()
+    user = users.get_user(user_id, db=db)
+    if user is None:
+        return None
+
+    now = utcnow()
+    current = _as_aware(user.get("tier_expires_at"))
+    extending = user.get("tier") == tier and current is not None and current > now
+    expires = None if days is None else (current if extending else now) + timedelta(days=days)
+
+    updated = users.update_user(user_id, db=db, tier=tier, tier_expires_at=expires)
+    db.tier_grants.insert_one(
+        {
+            "user_id": user_id,
+            "tier": tier,
+            "days": days,
+            "expires_at": expires,
+            "previous_tier": user.get("tier", FREE_TIER),
+            "reason": reason,
+            "source": source,
+            "granted_at": now,
+        }
+    )
+    return updated
+
+
+def list_grants(user_id: str, *, db: Database | None = None) -> list[dict]:
+    """Every tier grant this user has received, newest first."""
+    db = db if db is not None else get_db()
+    return list(db.tier_grants.find({"user_id": user_id}).sort("granted_at", -1))
+
+
+def downgrade_expired(*, db: Database | None = None) -> int:
+    """Drop everyone whose paid window has closed back to free. Returns the count.
+
+    ``effective_tier`` already refuses to honour an elapsed grant, so this is
+    hygiene rather than enforcement: it keeps the stored field truthful, which is
+    what the account page, the admin list, and any future export read.
+    """
+    db = db if db is not None else get_db()
+    expired = list(
+        db.users.find(
+            {
+                "tier": {"$ne": FREE_TIER},
+                "tier_expires_at": {"$ne": None, "$lte": utcnow()},
+            },
+            {"_id": 1},
+        )
+    )
+    for user in expired:
+        users.update_user(user["_id"], db=db, tier=FREE_TIER, tier_expires_at=None)
+    return len(expired)
 
 
 # Reverse lookup from the granted ``tier`` string to its Plan. ``PLANS`` is keyed
@@ -238,7 +360,16 @@ def apply_webhook(
         )
         if updated is None:
             return payment  # already paid - no double-apply
-        users.update_user(payment["user_id"], db=db, tier=payment["tier"])
+        # A month of the tier, dated from now (or from the end of an unexpired
+        # grant, so buying early never burns days).
+        grant_tier(
+            payment["user_id"],
+            payment["tier"],
+            days=SUBSCRIPTION_DAYS,
+            reason=f"invoice {invoice_id}",
+            source="monobank",
+            db=db,
+        )
         return updated
 
     # Non-paying status (failure/expired/intermediate): just record it, never

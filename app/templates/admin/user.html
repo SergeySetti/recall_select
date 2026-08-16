@@ -16,6 +16,9 @@
     <div class="rs-card p-3 h-100">
       <div class="text-muted-beige small">Plan</div>
       <div class="fs-5">{{ summary.plan_name }}</div>
+      {% if user.tier_expires_at %}
+        <div class="text-muted-beige small">until {{ user.tier_expires_at.strftime("%Y-%m-%d") }}</div>
+      {% endif %}
     </div>
   </div>
   <div class="col-6 col-lg-3">
@@ -88,6 +91,33 @@
 </div>
 {% else %}
 <div class="rs-card p-3 text-muted-beige mb-4">No memory link generated yet.</div>
+{% endif %}
+
+{% if grants %}
+<h2 class="h6 text-muted-beige mt-4 mb-2">Tier grants</h2>
+<div class="rs-card p-0 overflow-auto mb-4">
+  <table class="table rs-table mb-0 align-middle">
+    <thead>
+      <tr><th>Granted</th><th>Tier</th><th>Days</th><th>Expires</th><th>Source</th><th>Reason</th></tr>
+    </thead>
+    <tbody>
+      {% for grant in grants %}
+      <tr>
+        <td class="text-muted-beige small">
+          {{ grant.granted_at.strftime("%Y-%m-%d %H:%M") if grant.granted_at else "-" }}
+        </td>
+        <td>{{ grant.tier }}</td>
+        <td>{{ grant.days if grant.days else "open-ended" }}</td>
+        <td class="text-muted-beige small">
+          {{ grant.expires_at.strftime("%Y-%m-%d") if grant.expires_at else "-" }}
+        </td>
+        <td>{{ grant.source }}</td>
+        <td class="text-muted-beige small">{{ grant.reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endif %}
 
 <p class="text-muted-beige small">

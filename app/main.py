@@ -77,6 +77,17 @@ async def _reconcile_payments_periodically() -> None:
         if report.get("settled") or report.get("errors"):
             logger.info("Payment reconciliation: %s", report)
 
+        # Same cadence, same thread: retire tier grants whose month is up.
+        try:
+            expired = await anyio.to_thread.run_sync(
+                partial(billing.downgrade_expired, db=app_container.get(Database))
+            )
+        except Exception:  # noqa: BLE001 - never kill the loop.
+            logger.exception("Tier expiry sweep failed")
+            continue
+        if expired:
+            logger.info("Tier expiry: %s account(s) returned to free", expired)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -78,6 +78,7 @@ en:
     heading: Your account
     back: Home
     plan: Your plan
+    plan_until: "Active until %{date}"
     upgrade: Upgrade plan
     usage_heading: This month
     calls_metered: "%{used} of %{total} memory actions used"

@@ -33,7 +33,7 @@ def overview(user: dict, *, db: Database | None = None) -> dict:
     """
     db = db if db is not None else get_db()
     user_id = user["_id"]
-    tier = user.get("tier", billing.FREE_TIER)
+    tier = billing.effective_tier(user)
 
     calls_allowance = billing.call_allowance(tier)
     calls_used = usage.calls_this_period(user_id, db=db)
@@ -72,6 +72,8 @@ def overview(user: dict, *, db: Database | None = None) -> dict:
     return {
         "tier": tier,
         "plan_name": billing.tier_name(tier),
+        # When the current paid grant runs out (None on free / open-ended).
+        "tier_expires_at": billing.tier_expiry(user) if tier != billing.FREE_TIER else None,
         "period": usage.current_period(),
         "calls_used": calls_used,
         "calls_allowance": calls_allowance,

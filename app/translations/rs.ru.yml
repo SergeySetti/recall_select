@@ -68,6 +68,7 @@ ru:
     heading: Ваш аккаунт
     back: На главную
     plan: Ваш тариф
+    plan_until: "Активен до %{date}"
     upgrade: Повысить тариф
     usage_heading: В этом месяце
     calls_metered: "Использовано %{used} из %{total} обращений к памяти"

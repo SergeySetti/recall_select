@@ -270,3 +270,126 @@ def test_fetch_invoice_status_calls_the_status_endpoint(monkeypatch):
     assert monobank.fetch_invoice_status(cfg, "inv 42/x")["status"] == "success"
     # The id is query-escaped, never interpolated raw.
     assert seen["path"] == "/api/merchant/invoice/status?invoiceId=inv%2042/x"
+
+
+# --- Tier expiry -----------------------------------------------------------
+# A paid tier is bought by the month. `tier` records the purchase;
+# `tier_expires_at` records how long it is good for, and entitlement must be
+# read through effective_tier or an elapsed grant keeps paying out forever.
+
+
+def test_effective_tier_ignores_an_elapsed_grant(mongo_db):
+    user = users.add_user("lapsed@example.com", tier="paid_2x", db=mongo_db)
+    mongo_db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"tier_expires_at": mongo.utcnow() - timedelta(days=1)}},
+    )
+    lapsed = users.get_user(user["_id"], db=mongo_db)
+
+    assert lapsed["tier"] == "paid_2x"  # the purchase is still on record
+    assert billing.effective_tier(lapsed) == "free"  # the entitlement is not
+    assert billing.call_allowance(billing.effective_tier(lapsed)) == billing.FREE_CALLS
+
+
+def test_effective_tier_honours_a_live_or_open_ended_grant(mongo_db):
+    live = users.add_user("live@example.com", tier="paid_2x", db=mongo_db)
+    mongo_db.users.update_one(
+        {"_id": live["_id"]},
+        {"$set": {"tier_expires_at": mongo.utcnow() + timedelta(days=5)}},
+    )
+    forever = users.add_user("forever@example.com", tier="unlim", db=mongo_db)
+
+    assert billing.effective_tier(users.get_user(live["_id"], db=mongo_db)) == "paid_2x"
+    # No expiry set at all = open-ended (legacy rows and permanent gifts).
+    assert billing.effective_tier(forever) == "unlim"
+    assert billing.effective_tier(None) == "free"
+
+
+def test_effective_tier_handles_naive_timestamps_from_mongo(mongo_db):
+    """pymongo returns naive datetimes; comparing them to utcnow() must not raise."""
+    user = users.add_user("naive@example.com", tier="paid_2x", db=mongo_db)
+    naive_future = (mongo.utcnow() + timedelta(days=3)).replace(tzinfo=None)
+
+    assert billing.effective_tier({**user, "tier_expires_at": naive_future}) == "paid_2x"
+    naive_past = (mongo.utcnow() - timedelta(days=3)).replace(tzinfo=None)
+    assert billing.effective_tier({**user, "tier_expires_at": naive_past}) == "free"
+
+
+def test_grant_tier_sets_a_window_and_logs_why(mongo_db):
+    user = users.add_user("gift@example.com", db=mongo_db)
+
+    granted = billing.grant_tier(
+        user["_id"], "paid_2x", days=30, reason="goodwill", source="owner", db=mongo_db
+    )
+
+    assert granted["tier"] == "paid_2x"
+    assert billing.effective_tier(granted) == "paid_2x"
+    expires = billing.tier_expiry(granted)
+    assert timedelta(days=29) < expires - mongo.utcnow() <= timedelta(days=30)
+    (entry,) = billing.list_grants(user["_id"], db=mongo_db)
+    assert entry["reason"] == "goodwill"
+    assert entry["source"] == "owner"
+    assert entry["previous_tier"] == "free"
+
+
+def test_grant_tier_extends_rather_than_truncates(mongo_db):
+    user = users.add_user("renewer@example.com", db=mongo_db)
+    first = billing.grant_tier(
+        user["_id"], "paid_2x", days=30, reason="month one", source="monobank", db=mongo_db
+    )
+    first_expiry = billing.tier_expiry(first)
+
+    second = billing.grant_tier(
+        user["_id"], "paid_2x", days=30, reason="month two", source="monobank", db=mongo_db
+    )
+
+    # Renewing early adds to the remaining time instead of restarting the clock.
+    assert billing.tier_expiry(second) - first_expiry == timedelta(days=30)
+    assert len(billing.list_grants(user["_id"], db=mongo_db)) == 2
+
+
+def test_paid_webhook_grants_exactly_one_month(mongo_db):
+    user = users.add_user("buyer@example.com", db=mongo_db)
+    billing.record_pending("inv-month", user["_id"], billing.get_plan("2x"), db=mongo_db)
+
+    billing.apply_webhook("inv-month", "success", db=mongo_db)
+
+    bought = users.get_user(user["_id"], db=mongo_db)
+    assert billing.effective_tier(bought) == "paid_2x"
+    assert billing.tier_expiry(bought) is not None
+    (entry,) = billing.list_grants(user["_id"], db=mongo_db)
+    assert entry["source"] == "monobank" and entry["reason"] == "invoice inv-month"
+
+
+def test_downgrade_expired_returns_lapsed_accounts_to_free(mongo_db):
+    lapsed = users.add_user("out@example.com", tier="paid_2x", db=mongo_db)
+    mongo_db.users.update_one(
+        {"_id": lapsed["_id"]},
+        {"$set": {"tier_expires_at": mongo.utcnow() - timedelta(hours=1)}},
+    )
+    live = users.add_user("in@example.com", db=mongo_db)
+    billing.grant_tier(live["_id"], "paid_2x", days=30, reason="x", source="owner", db=mongo_db)
+    forever = users.add_user("keep@example.com", tier="unlim", db=mongo_db)
+
+    assert billing.downgrade_expired(db=mongo_db) == 1
+
+    assert users.get_user(lapsed["_id"], db=mongo_db)["tier"] == "free"
+    assert users.get_user(live["_id"], db=mongo_db)["tier"] == "paid_2x"
+    # An open-ended grant has no window to fall out of.
+    assert users.get_user(forever["_id"], db=mongo_db)["tier"] == "unlim"
+
+
+def test_quota_check_uses_the_effective_tier(mongo_db):
+    from app.services import usage
+    from app.services.usage import QuotaExceeded
+
+    user = users.add_user("overrun@example.com", tier="paid_2x", db=mongo_db)
+    mongo_db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"tier_expires_at": mongo.utcnow() - timedelta(days=1)}},
+    )
+    # Spent more than free allows, less than the lapsed paid tier would have.
+    usage.record_call(user["_id"], count=billing.FREE_CALLS, db=mongo_db)
+
+    with pytest.raises(QuotaExceeded):
+        usage.check_call_allowed(user["_id"], db=mongo_db)
