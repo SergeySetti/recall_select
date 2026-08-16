@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import timedelta
 
 import mongomock
 import pytest
@@ -155,3 +156,117 @@ def test_webhook_verified_grants_tier(client, keypair, monkeypatch):
     ok = api.post("/webhooks/monobank", content=body, headers={"X-Sign": _sign(priv, body)})
     assert ok.status_code == 200
     assert users.get_user(user["_id"], db=db)["tier"] == billing.PLANS["unlim"].tier
+
+
+# --- Reconciliation --------------------------------------------------------
+# The webhook is delivered once and never re-sent, so entitlement cannot depend
+# on it alone: these cover the pull side that settles what the push side missed.
+
+
+def _aged_payment(mongo_db, invoice_id: str, user_id: str, *, minutes: int, status: str = "created"):
+    """A pending payment whose created_at is backdated by ``minutes``."""
+    plan = billing.get_plan("2x")
+    billing.record_pending(invoice_id, user_id, plan, db=mongo_db)
+    stale = mongo.utcnow() - timedelta(minutes=minutes)
+    mongo_db.payments.update_one(
+        {"_id": invoice_id}, {"$set": {"created_at": stale, "status": status}}
+    )
+    return billing.get_payment(invoice_id, db=mongo_db)
+
+
+def test_list_unsettled_skips_fresh_and_terminal(mongo_db):
+    user = users.add_user("recon@example.com", db=mongo_db)
+    uid = user["_id"]
+    _aged_payment(mongo_db, "old-pending", uid, minutes=30)
+    _aged_payment(mongo_db, "fresh-pending", uid, minutes=0)
+    _aged_payment(mongo_db, "old-paid", uid, minutes=30, status="success")
+    _aged_payment(mongo_db, "old-expired", uid, minutes=30, status="expired")
+
+    ids = [p["_id"] for p in billing.list_unsettled(db=mongo_db)]
+
+    # Only the one still in flight and old enough that its webhook should have come.
+    assert ids == ["old-pending"]
+
+
+def test_reconcile_grants_the_tier_a_lost_webhook_would_have(mongo_db):
+    user = users.add_user("paid@example.com", db=mongo_db)
+    uid = user["_id"]
+    _aged_payment(mongo_db, "inv-paid", uid, minutes=30)
+
+    report = billing.reconcile(fetch_status=lambda _: "success", db=mongo_db)
+
+    assert report == {"checked": 1, "settled": 1, "granted": 1, "errors": 0}
+    assert users.get_user(uid, db=mongo_db)["tier"] == "paid_2x"
+    stored = billing.get_payment("inv-paid", db=mongo_db)
+    assert stored["status"] == "success"
+    assert stored["paid_at"] is not None
+
+
+def test_reconcile_records_expiry_without_granting(mongo_db):
+    user = users.add_user("expired@example.com", db=mongo_db)
+    uid = user["_id"]
+    _aged_payment(mongo_db, "inv-expired", uid, minutes=30)
+
+    report = billing.reconcile(fetch_status=lambda _: "expired", db=mongo_db)
+
+    assert report == {"checked": 1, "settled": 1, "granted": 0, "errors": 0}
+    assert billing.get_payment("inv-expired", db=mongo_db)["status"] == "expired"
+    assert users.get_user(uid, db=mongo_db)["tier"] == "free"
+
+
+def test_reconcile_is_idempotent_with_the_webhook(mongo_db):
+    """The sweep and a duplicate webhook must not grant twice or fight."""
+    user = users.add_user("both@example.com", db=mongo_db)
+    uid = user["_id"]
+    _aged_payment(mongo_db, "inv-both", uid, minutes=30)
+
+    billing.apply_webhook("inv-both", "success", db=mongo_db)
+    paid_at = billing.get_payment("inv-both", db=mongo_db)["paid_at"]
+
+    # Already terminal, so the sweep does not even look at it.
+    report = billing.reconcile(fetch_status=lambda _: "success", db=mongo_db)
+
+    assert report["checked"] == 0
+    assert billing.get_payment("inv-both", db=mongo_db)["paid_at"] == paid_at
+    assert users.get_user(uid, db=mongo_db)["tier"] == "paid_2x"
+
+
+def test_reconcile_survives_a_failing_lookup(mongo_db):
+    user = users.add_user("flaky@example.com", db=mongo_db)
+    uid = user["_id"]
+    _aged_payment(mongo_db, "inv-a", uid, minutes=30)
+    _aged_payment(mongo_db, "inv-b", uid, minutes=30)
+
+    def fetch(invoice_id: str) -> str:
+        if invoice_id == "inv-a":
+            raise RuntimeError("Monobank unreachable")
+        return "success"
+
+    report = billing.reconcile(fetch_status=fetch, db=mongo_db)
+
+    # The unreachable invoice is counted and skipped; the other still settles.
+    assert report["errors"] == 1
+    assert report["granted"] == 1
+    assert billing.get_payment("inv-a", db=mongo_db)["status"] == "created"
+    assert users.get_user(uid, db=mongo_db)["tier"] == "paid_2x"
+
+
+def test_reconcile_with_monobank_is_a_noop_without_a_merchant_token(mongo_db, monkeypatch):
+    monkeypatch.delenv("MONOBANK_API_KEY", raising=False)
+
+    assert billing.reconcile_with_monobank(db=mongo_db)["skipped"] is True
+
+
+def test_fetch_invoice_status_calls_the_status_endpoint(monkeypatch):
+    seen = {}
+
+    def fake_get(cfg, path):
+        seen["path"] = path
+        return {"status": "success", "amount": 1700}
+
+    monkeypatch.setattr(monobank, "_get_json", fake_get)
+    cfg = monobank.MonobankConfig(api_key="token", webhook_url="", redirect_url="")
+
+    assert monobank.fetch_invoice_status(cfg, "inv 42/x")["status"] == "success"
+    # The id is query-escaped, never interpolated raw.
+    assert seen["path"] == "/api/merchant/invoice/status?invoiceId=inv%2042/x"

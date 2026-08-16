@@ -169,3 +169,29 @@ def test_repeated_failures_lock_the_client_out(client, enabled):
     response = client.post("/admin", data={"secret": SECRET}, follow_redirects=False)
     assert response.status_code == 429
     admin_api._failures.clear()
+
+
+def test_payments_page_shows_status_not_just_the_row(unlocked, mongo_db):
+    """The page must distinguish "started paying" from "paid" - the row alone
+    (status: created) once read as a payment that never granted a tier."""
+    from app.services import billing
+
+    user = users.add_user("payer@example.com", db=mongo_db)
+    billing.record_pending("inv-admin-1", user["_id"], billing.get_plan("2x"), db=mongo_db)
+
+    page = unlocked.get("/admin/payments")
+
+    assert page.status_code == 200
+    assert "payer@example.com" in page.text
+    assert "in flight" in page.text  # created = not settled, not paid
+
+    billing.apply_webhook("inv-admin-1", "success", db=mongo_db)
+    rows = admin.list_payments(db=mongo_db)
+    assert rows[0]["paid"] is True and rows[0]["settled"] is True
+
+
+def test_payments_page_needs_the_unlock(client, enabled):
+    response = client.get("/admin/payments", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin"

@@ -18,16 +18,26 @@ Pure I/O - ``db`` is injected so this is testable without live backends.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
+from typing import Callable
 
 from pymongo import ReturnDocument
 from pymongo.database import Database
 
-from app.services import users
+from app.services import monobank, users
 from app.services.mongo import get_db, utcnow
 
 # The one webhook status that grants entitlement. Monobank also emits
 # created/processing/hold/failure/reversed/expired; only this one pays out.
 PAID_STATUS = "success"
+
+# Statuses an invoice never moves on from. Anything else (created, processing,
+# hold) is still in flight and worth re-checking - see ``reconcile``.
+TERMINAL_STATUSES = frozenset({PAID_STATUS, "failure", "reversed", "expired"})
+
+# How stale an in-flight payment must be before reconciliation pulls its status.
+# Long enough that the ordinary webhook has had every chance to arrive first.
+RECONCILE_AFTER_SECONDS = 300
 
 
 # The baseline every account starts on; shown (unpurchasable) on the plans page.
@@ -238,3 +248,105 @@ def apply_webhook(
         {"$set": {"status": status, "updated_at": utcnow()}},
         return_document=ReturnDocument.AFTER,
     ) or payment
+
+
+# --- Reconciliation --------------------------------------------------------
+# The webhook is fire-and-forget: Monobank sends a status change once, and a
+# callback lost to a restart, a proxy blip, or a signature failure is never
+# re-sent. Until this existed that was a silent under-entitlement - the customer
+# paid and stayed on their old tier with nothing on our side to notice. So we
+# also *pull*: every in-flight payment older than a few minutes gets its real
+# status fetched and pushed through the very same ``apply_webhook`` transition,
+# which is already idempotent - whichever of push and pull arrives first wins,
+# and the other one is a no-op.
+
+
+def list_unsettled(
+    *,
+    older_than_seconds: int = RECONCILE_AFTER_SECONDS,
+    limit: int = 100,
+    db: Database | None = None,
+) -> list[dict]:
+    """In-flight payments old enough that their webhook should have landed."""
+    db = db if db is not None else get_db()
+    cutoff = utcnow() - timedelta(seconds=older_than_seconds)
+    return list(
+        db.payments.find(
+            {
+                "status": {"$nin": sorted(TERMINAL_STATUSES)},
+                "created_at": {"$lte": cutoff},
+            }
+        )
+        .sort("created_at", 1)
+        .limit(limit)
+    )
+
+
+def reconcile(
+    *,
+    fetch_status: Callable[[str], str | None],
+    older_than_seconds: int = RECONCILE_AFTER_SECONDS,
+    limit: int = 100,
+    db: Database | None = None,
+) -> dict:
+    """Pull the real status of every in-flight payment and apply what changed.
+
+    ``fetch_status`` maps an invoice id to Monobank's current status string (it
+    is injected so this is testable without the network; see
+    ``reconcile_with_monobank`` for the wired-up version). A lookup that raises
+    is counted and skipped - one unreachable invoice must not stop the rest.
+
+    Returns a small report: how many were ``checked``, how many reached a
+    terminal status (``settled``), how many of those were paid and therefore
+    granted a tier (``granted``), and how many lookups failed (``errors``).
+    """
+    db = db if db is not None else get_db()
+    report = {"checked": 0, "settled": 0, "granted": 0, "errors": 0}
+
+    for payment in list_unsettled(
+        older_than_seconds=older_than_seconds, limit=limit, db=db
+    ):
+        try:
+            current = fetch_status(payment["_id"])
+        except Exception:  # noqa: BLE001 - one bad lookup must not stop the sweep.
+            report["errors"] += 1
+            continue
+
+        report["checked"] += 1
+        if not current or current == payment["status"]:
+            continue
+
+        updated = apply_webhook(payment["_id"], current, db=db)
+        if updated is None:
+            continue
+        if updated["status"] in TERMINAL_STATUSES:
+            report["settled"] += 1
+        # The tier flip happened here (not in an earlier delivery) only if this
+        # record was still unpaid when the sweep picked it up.
+        if current == PAID_STATUS:
+            report["granted"] += 1
+
+    return report
+
+
+def reconcile_with_monobank(
+    *,
+    older_than_seconds: int = RECONCILE_AFTER_SECONDS,
+    limit: int = 100,
+    db: Database | None = None,
+) -> dict:
+    """``reconcile`` wired to the live Monobank API.
+
+    A no-op when payments are unconfigured, so a deployment without a merchant
+    token (local dev, tests) can run the sweep harmlessly.
+    """
+    cfg = monobank.load_config()
+    if not cfg.configured:
+        return {"checked": 0, "settled": 0, "granted": 0, "errors": 0, "skipped": True}
+
+    def fetch(invoice_id: str) -> str | None:
+        return monobank.fetch_invoice_status(cfg, invoice_id).get("status")
+
+    return reconcile(
+        fetch_status=fetch, older_than_seconds=older_than_seconds, limit=limit, db=db
+    )

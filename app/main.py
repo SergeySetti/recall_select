@@ -1,7 +1,11 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
+
+import anyio
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -46,6 +50,34 @@ BASE_DIR = Path(__file__).resolve().parent
 SESSION_SECRET = os.getenv("SESSION_SECRET") or "dev-insecure-session-secret"
 
 
+# How often to pull the real status of in-flight payments from Monobank.
+# 0 disables the sweep (the webhook alone then decides entitlement).
+PAYMENT_RECONCILE_MINUTES = int(os.getenv("PAYMENT_RECONCILE_MINUTES", "15"))
+
+
+async def _reconcile_payments_periodically() -> None:
+    """Background sweep: settle payments whose webhook never arrived.
+
+    Monobank sends each status change once, so a callback lost to a restart or a
+    proxy blip would otherwise strand a paying customer on their old tier. The
+    sweep pulls the authoritative status instead (see
+    ``billing.reconcile_with_monobank``) and is idempotent against the webhook.
+    Blocking I/O (pymongo + urllib), so it runs in a worker thread.
+    """
+    while True:
+        await anyio.sleep(PAYMENT_RECONCILE_MINUTES * 60)
+        try:
+            report = await anyio.to_thread.run_sync(
+                partial(billing.reconcile_with_monobank, db=app_container.get(Database))
+            )
+        except Exception:  # noqa: BLE001 - a failed sweep must not kill the loop.
+            logger.exception("Payment reconciliation sweep failed")
+            continue
+        # Quiet on the common "nothing in flight" outcome; loud when it mattered.
+        if report.get("settled") or report.get("errors"):
+            logger.info("Payment reconciliation: %s", report)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Qdrant is touched lazily: every collection (one per user+project) is
@@ -56,10 +88,20 @@ async def lifespan(app: FastAPI):
         mongo.ensure_indexes(app_container.get(Database))
     except Exception:  # noqa: BLE001 - startup must not crash on a cold Mongo.
         logger.warning("Mongo not reachable at startup; deferring index setup.")
-    # The MCP Streamable HTTP transport (task group behind /m/{key}) runs for
-    # the whole life of the app.
-    async with mcp_server.session_lifespan():
-        yield
+
+    sweep = (
+        asyncio.create_task(_reconcile_payments_periodically())
+        if PAYMENT_RECONCILE_MINUTES > 0
+        else None
+    )
+    try:
+        # The MCP Streamable HTTP transport (task group behind /m/{key}) runs for
+        # the whole life of the app.
+        async with mcp_server.session_lifespan():
+            yield
+    finally:
+        if sweep is not None:
+            sweep.cancel()
 
 
 # The public site owns `/docs` (user documentation), so move FastAPI's built-in

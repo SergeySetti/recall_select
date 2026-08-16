@@ -95,13 +95,14 @@ first memory is stored into a `(user, project)` pair.
     the collection API's delete uses `destroy_collection`.
   - `embeddings.py` - the `Embedder` abstraction; `embeddings_remote.py` - the
     concrete text→vector backend (remote embedding API, e.g. DeepInfra).
-  - `monobank.py` - minimal Monobank acquiring client (`create_invoice`) plus
-    webhook auth (`fetch_pubkey` / `verify_signature`, ECDSA-SHA256 over the raw
-    body). Reuses the mcp-api.net merchant token; recall.select owns its own
-    invoice/redirect/webhook.
+  - `monobank.py` - minimal Monobank acquiring client (`create_invoice`,
+    `fetch_invoice_status`) plus webhook auth (`fetch_pubkey` /
+    `verify_signature`, ECDSA-SHA256 over the raw body). Reuses the mcp-api.net
+    merchant token; recall.select owns its own invoice/redirect/webhook.
   - `billing.py` - the plan catalogue and the payment record keyed by Monobank's
     `invoiceId`. `record_pending` on checkout; `apply_webhook` flips the buyer's
-    `tier` **once** on `success` (idempotent against retries/duplicates). Also the
+    `tier` **once** on `success` (idempotent against retries/duplicates);
+    `reconcile` settles what the webhook missed (below). Also the
     single source of truth for per-tier allowances: `call_allowance(tier)` /
     `project_allowance(tier)` (`None` = unlimited; unknown tiers fall back to free).
   - `usage.py` - the monthly call meter and the price-model gate. Every accepted
@@ -130,6 +131,18 @@ Payments ride the HTTP layer in **`app/api/payments.py`**: `POST /api/me/checkou
 `POST /webhooks/monobank` grants the tier; `GET /payment/success|fail` are the
 cosmetic browser return pages (entitlement is webhook-driven, never these).
 
+**Entitlement does not depend on the webhook alone.** Monobank sends each status
+change once and never re-sends it, so a callback lost to a restart or a proxy
+blip would leave a customer who paid on their old tier, with nothing on our side
+to notice. So the app also pulls: every `PAYMENT_RECONCILE_MINUTES` a background
+sweep (`billing.reconcile_with_monobank`, started in the `app/main.py` lifespan)
+fetches the real status of each payment still in flight after five minutes and
+pushes it through the *same* `apply_webhook` transition. Push and pull are
+idempotent against each other - whichever lands first grants the tier, the other
+is a no-op. A row in `payments` is written when checkout *starts*, so `created`
+means "opened the payment page", not "paid"; `/admin/payments` shows that
+distinction explicitly.
+
 Every CRUD function takes an optional `db=`/`client=` argument so it can be driven
 in tests without a live backend.
 
@@ -155,6 +168,7 @@ Set via environment (a local `.env` is auto-loaded; never commit it - see
 | `MONOBANK_REDIRECT_URL` | `{PUBLIC_BASE_URL}/payment/success` | Where the shopper's browser returns after paying. |
 | `MONOBANK_WEBHOOK_URL` | `{PUBLIC_BASE_URL}/webhooks/monobank` | Server-to-server callback that grants the tier. Must be publicly reachable. |
 | `MONOBANK_WEBHOOK_VERIFY` | `1` | Verify the webhook's `X-Sign` against the merchant pubkey. Keep on wherever money moves; `0` only for local dev. |
+| `PAYMENT_RECONCILE_MINUTES` | `15` | How often to pull the real status of in-flight payments from Monobank, so a lost webhook can't strand a paying customer. `0` disables the sweep. |
 | `ADMIN_SECRET` | _(unset - area disabled)_ | Unlocks the owner admin area at `/admin`. Unset means every `/admin` route 404s. |
 | `ADMIN_SESSION_HOURS` | `12` | How long an unlocked admin session lasts before it re-locks. |
 

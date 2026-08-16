@@ -28,7 +28,7 @@ import time
 
 from pymongo.database import Database
 
-from app.services import account, api_keys
+from app.services import account, api_keys, billing
 from app.services.mongo import get_db
 
 # How long an unlocked admin session stays unlocked, in seconds. Short by
@@ -132,6 +132,43 @@ def list_users(*, query: str | None = None, limit: int = 50, db: Database | None
             }
         )
     return rows
+
+
+def list_payments(*, limit: int = 100, db: Database | None = None) -> list[dict]:
+    """Every payment record, newest first, joined to the payer's email.
+
+    A row is created the moment a checkout invoice is minted, so ``created`` here
+    means "started paying", not "paid" - only ``success`` grants a tier. The
+    ``settled`` flag says whether the invoice reached a final state at all; a row
+    that is still in flight long after ``created_at`` is one the reconciliation
+    sweep has yet to settle (see ``app.services.billing.reconcile``).
+    """
+    db = db if db is not None else get_db()
+    payments = list(db.payments.find().sort("created_at", -1).limit(limit))
+
+    emails = {
+        user["_id"]: user.get("email")
+        for user in db.users.find(
+            {"_id": {"$in": [p.get("user_id") for p in payments]}}, {"email": 1}
+        )
+    }
+    return [
+        {
+            "invoice_id": payment["_id"],
+            "user_id": payment.get("user_id"),
+            "email": emails.get(payment.get("user_id")),
+            "plan": payment.get("plan"),
+            "tier": payment.get("tier"),
+            "amount": payment.get("amount", 0) / 100,
+            "currency": payment.get("ccy"),
+            "status": payment.get("status"),
+            "paid": payment.get("status") == billing.PAID_STATUS,
+            "settled": payment.get("status") in billing.TERMINAL_STATUSES,
+            "created_at": payment.get("created_at"),
+            "paid_at": payment.get("paid_at"),
+        }
+        for payment in payments
+    ]
 
 
 def user_count(*, db: Database | None = None) -> int:

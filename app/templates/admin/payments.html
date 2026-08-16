@@ -1,0 +1,61 @@
+{% extends "admin/_base.html" %}
+{% block title %}Payments{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-1">Payments</h1>
+<p class="text-muted-beige small mb-3">
+  A row appears when someone starts a checkout, so <span class="rs-mono">created</span> means
+  "opened the payment page", not "paid". Only <span class="rs-mono">success</span> grants a tier.
+  Statuses are settled by Monobank's webhook and, if that never arrives, by the reconciliation sweep.
+</p>
+
+{% if rows %}
+<div class="rs-card p-0 overflow-auto">
+  <table class="table rs-table mb-0 align-middle">
+    <thead>
+      <tr>
+        <th>Started</th>
+        <th>User</th>
+        <th>Plan</th>
+        <th class="text-end">Amount</th>
+        <th>Status</th>
+        <th>Paid at</th>
+        <th>Invoice</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td class="text-muted-beige small">
+          {{ row.created_at.strftime("%Y-%m-%d %H:%M") if row.created_at else "-" }}
+        </td>
+        <td>
+          {% if row.user_id %}
+            <a href="/admin/users/{{ row.user_id }}">{{ row.email or row.user_id }}</a>
+          {% else %}-{% endif %}
+        </td>
+        <td>{{ row.plan or "-" }}</td>
+        <td class="text-end">{{ "%.2f"|format(row.amount) }} {{ row.currency or "" }}</td>
+        <td>
+          {% if row.paid %}
+            <span class="rs-accent fw-semibold">{{ row.status }}</span>
+          {% elif row.settled %}
+            {{ row.status }}
+          {% else %}
+            {# Not terminal: either still in flight, or waiting on the sweep. #}
+            <span class="text-muted-beige">{{ row.status }} - in flight</span>
+          {% endif %}
+        </td>
+        <td class="text-muted-beige small">
+          {{ row.paid_at.strftime("%Y-%m-%d %H:%M") if row.paid_at else "-" }}
+        </td>
+        <td class="rs-mono small text-muted-beige">{{ row.invoice_id }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="rs-card p-4 text-muted-beige">No checkouts yet.</div>
+{% endif %}
+{% endblock %}

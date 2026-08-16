@@ -154,6 +154,15 @@ async def users_page(request: Request, db: DbDep, q: str | None = None):
     )
 
 
+@router.get("/payments", response_class=HTMLResponse)
+async def payments_page(request: Request, db: DbDep):
+    """Every checkout ever started, and what actually became of it."""
+    _require_enabled()
+    if not _is_unlocked(request):
+        return RedirectResponse(url="/admin", status_code=303)
+    return _page(request, "admin/payments.html", {"rows": admin.list_payments(db=db)})
+
+
 @router.get("/users/{user_id}", response_class=HTMLResponse)
 async def user_page(user_id: str, request: Request, db: DbDep):
     """One user's personal area, exactly as the numbers reach them at /account."""

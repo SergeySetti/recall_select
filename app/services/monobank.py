@@ -29,6 +29,7 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -36,6 +37,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 MONOBANK_API_BASE = "https://api.monobank.ua"
 INVOICE_CREATE_PATH = "/api/merchant/invoice/create"
+INVOICE_STATUS_PATH = "/api/merchant/invoice/status"
 PUBKEY_PATH = "/api/merchant/pubkey"
 
 # ISO 4217 numeric currency codes accepted by Monobank acquiring.
@@ -95,6 +97,22 @@ def create_invoice(
         payload["webHookUrl"] = webhook
 
     return _post_json(cfg, INVOICE_CREATE_PATH, payload)
+
+
+def fetch_invoice_status(cfg: MonobankConfig, invoice_id: str) -> dict:
+    """Ask Monobank what actually happened to an invoice.
+
+    The webhook is the fast path for a status change, but it is fire-and-forget:
+    a callback lost to a restart or a network blip is never re-sent, which would
+    strand a *paid* customer on their old tier. This is the authoritative pull
+    side of the same information, used by ``billing.reconcile``.
+
+    Returns the parsed invoice record - ``status`` plus ``amount``, ``ccy``,
+    ``reference`` and (when it failed) ``failureReason``.
+    """
+    if not cfg.configured:
+        raise RuntimeError("MONOBANK_API_KEY is not set")
+    return _get_json(cfg, f"{INVOICE_STATUS_PATH}?invoiceId={quote(invoice_id)}")
 
 
 def fetch_pubkey(cfg: MonobankConfig) -> bytes:

@@ -40,6 +40,10 @@ services:
             - MONOBANK_REDIRECT_URL=${MONOBANK_REDIRECT_URL:-}
             - MONOBANK_WEBHOOK_URL=${MONOBANK_WEBHOOK_URL:-}
             - MONOBANK_WEBHOOK_VERIFY=${MONOBANK_WEBHOOK_VERIFY:-1}
+            # How often (minutes) to pull the real status of in-flight payments
+            # from Monobank, so a lost webhook can't strand a paying customer.
+            # 0 disables the sweep.
+            - PAYMENT_RECONCILE_MINUTES=${PAYMENT_RECONCILE_MINUTES:-15}
         depends_on:
             qdrant:
                 condition: service_started
