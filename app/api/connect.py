@@ -27,6 +27,7 @@ def _instructions_md(base_url: str, key: str) -> str:
     # Same helper the public /docs pages use, so the two never drift.
     path_config = docs.mcp_config_json(mcp_url)
     header_config = docs.mcp_config_json(f"{base_url}/mcp", header_key=key)
+    toml_config = docs.mcp_config_toml(mcp_url)
     return f"""# recall.select - agent memory setup
 
 You've been handed a **recall.select** memory link. recall.select gives you
@@ -52,6 +53,22 @@ Add it to your MCP client config. For a generic Streamable HTTP MCP client:
 
 No separate API key or auth header is required - the URL itself authenticates you
 and scopes every call to your own memory workspace.
+
+### Where that goes, per client
+
+- **Claude Code** - `.mcp.json` in the project root (or run
+  `claude mcp add --transport http recall-select {mcp_url}`).
+- **Codex** - `~/.codex/config.toml`, and note it is **TOML, not JSON**:
+
+```toml
+{toml_config}
+```
+
+  Use `.codex/config.toml` inside a project to scope the memory to it. No
+  `bearer_token_env_var` line is needed - the link already carries the
+  credential. Restart Codex afterwards.
+- **Any other MCP client** - wherever it keeps its MCP server list, in that
+  client's own syntax. Full guides: {base_url}/docs/integrations
 
 ## Alternative: keep the key out of the URL
 

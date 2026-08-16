@@ -40,6 +40,15 @@ def mcp_config_json(url: str, *, header_key: str | None = None) -> str:
     return json.dumps(mcp_config(url, header_key=header_key), indent=2)
 
 
+def mcp_config_toml(url: str) -> str:
+    """The same server entry as TOML, for clients configured that way (Codex).
+
+    Derived from the same ``SERVER_NAME`` and URL as :func:`mcp_config_json` so
+    the two formats cannot drift apart.
+    """
+    return f'[mcp_servers.{SERVER_NAME}]\nurl = "{url}"'
+
+
 def placeholder_mcp_url(key: str = PLACEHOLDER_KEY) -> str:
     """The MCP server URL with a placeholder key, for public docs.
 
@@ -70,11 +79,19 @@ class Integration:
     related: tuple[tuple[str, str], ...] = ()  # (href, label)
     # Also show the "key in a header, not the URL" alternative on this page.
     show_header_alt: bool = False
+    # Config syntax this client expects: most take JSON, Codex takes TOML.
+    config_format: str = "json"
 
     @property
     def config_json(self) -> str:
-        """The primary client config, with the placeholder link."""
-        return mcp_config_json(placeholder_mcp_url())
+        """The primary client config, with the placeholder link.
+
+        Rendered in whichever syntax ``config_format`` names - both come from the
+        same builders, so a client that wants TOML still gets the same server
+        name and URL as everyone else.
+        """
+        url = placeholder_mcp_url()
+        return mcp_config_toml(url) if self.config_format == "toml" else mcp_config_json(url)
 
     @property
     def header_config_json(self) -> str:
@@ -112,9 +129,48 @@ INTEGRATIONS: dict[str, Integration] = {
             "version control.",
         ),
         related=(
+            ("/docs/integrations/codex", "Codex"),
             ("/docs/integrations/generic-mcp", "Generic MCP client"),
             ("/plans", "Plans & limits"),
         ),
+    ),
+    "codex": Integration(
+        slug="codex",
+        name="Codex",
+        tagline="Give OpenAI's Codex a memory it keeps between sessions.",
+        config_filename="~/.codex/config.toml",
+        config_note=(
+            "Codex is configured in TOML, not JSON. Add this block to "
+            "~/.codex/config.toml (or .codex/config.toml inside a project, to "
+            "scope the memory to that project)."
+        ),
+        steps=(
+            "Open ~/.codex/config.toml - create the file if it isn't there yet.",
+            "Add the block below, replacing the placeholder with your own memory "
+            "link. Keep the /m/ link exactly as it is: no .md on the end - that "
+            "suffix returns these instructions instead of the memory server.",
+            "Restart Codex. Ask it \"what MCP tools do you have?\" - it should "
+            "list store_memory and recall_memory.",
+        ),
+        usage=(
+            "Codex can now remember across sessions: it saves what you tell it to "
+            "keep and finds it later by meaning, so a new session starts already "
+            "knowing your preferences and decisions instead of asking again."
+        ),
+        tips=(
+            "No API key or token is needed. Your memory link already carries the "
+            "credential, which is why there is no bearer_token_env_var line here.",
+            "If your Codex build has the MCP subcommand, "
+            "\"codex mcp add recall-select --url <your-link>\" writes the same "
+            "block for you.",
+            "The link is the whole password. A project-scoped .codex/config.toml "
+            "belongs in .gitignore.",
+        ),
+        related=(
+            ("/docs/integrations/claude-code", "Claude Code"),
+            ("/docs/integrations/generic-mcp", "Generic MCP client"),
+        ),
+        config_format="toml",
     ),
     "generic-mcp": Integration(
         slug="generic-mcp",
@@ -139,6 +195,7 @@ INTEGRATIONS: dict[str, Integration] = {
         ),
         related=(
             ("/docs/integrations/claude-code", "Claude Code"),
+            ("/docs/integrations/codex", "Codex"),
             ("/plans", "Plans & limits"),
         ),
         show_header_alt=True,

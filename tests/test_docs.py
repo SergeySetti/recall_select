@@ -94,3 +94,53 @@ def test_docs_root_redirects_to_integrations(api):
     resp = api.get("/docs", follow_redirects=False)
     assert resp.status_code == 307
     assert resp.headers["location"] == "/docs/integrations"
+
+
+# --- Codex (TOML, not JSON) ------------------------------------------------
+# Codex reads ~/.codex/config.toml. Handing it the JSON every other client uses
+# is what left it unable to connect, so both surfaces must emit TOML for it.
+
+
+def test_mcp_config_toml_matches_the_json_entry():
+    url = "https://recall.select/m/abc"
+
+    toml = docs.mcp_config_toml(url)
+
+    assert toml == '[mcp_servers.recall-select]\nurl = "https://recall.select/m/abc"'
+    # Same server name and URL as the JSON form - one source of truth.
+    assert docs.SERVER_NAME in toml
+    assert docs.mcp_config(url)["mcpServers"][docs.SERVER_NAME]["url"] in toml
+
+
+def test_codex_guide_is_registered_and_renders_toml(api):
+    codex = docs.get_integration("codex")
+
+    assert codex is not None
+    assert codex.config_format == "toml"
+    assert codex.config_json.startswith("[mcp_servers.")
+    assert "mcpServers" not in codex.config_json  # never the JSON shape
+
+    page = api.get("/docs/integrations/codex")
+    assert page.status_code == 200
+    assert "config.toml" in page.text
+    assert "[mcp_servers.recall-select]" in page.text
+
+
+def test_codex_appears_in_the_guide_index(api):
+    index = api.get("/docs/integrations")
+
+    assert index.status_code == 200
+    assert "Codex" in index.text
+    assert "/docs/integrations/codex" in index.text
+
+
+def test_agent_instructions_cover_codex(mongo_db=None):
+    """The .md an agent fetches must name Codex's file and TOML syntax."""
+    md = connect._instructions_md("https://recall.select", "KEY123")
+
+    assert "~/.codex/config.toml" in md
+    assert "TOML, not JSON" in md
+    assert '[mcp_servers.recall-select]\nurl = "https://recall.select/m/KEY123"' in md
+    # The JSON form is still there for the clients that want it.
+    assert '"mcpServers"' in md
+    assert "https://recall.select/docs/integrations" in md
