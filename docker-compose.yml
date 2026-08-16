@@ -64,6 +64,15 @@ services:
         expose:
             - "6333"
             - "6334"
+        # Docker's default soft limit of 1024 open files is far too low here:
+        # every collection keeps a RocksDB payload_index open per segment
+        # (~30 fds per segment), so a handful of collections exhausts it and
+        # creating the next one fails with "Too many open files" - a 500 on
+        # PUT /collections that surfaces as a silently lost first memory.
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
         volumes:
             - qdrant_storage:/qdrant/storage
         networks:
