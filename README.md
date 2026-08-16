@@ -17,10 +17,13 @@ Memory is stored as vectors. Each memory store is a **Qdrant collection**, mappe
 **one-to-one** to a `(user, project)` pair. Metadata around those vectors - users,
 API keys, projects, and per-collection usage/limit stats - lives in **MongoDB**.
 
-```
-agent ──▶ FastAPI (web) ──▶ Qdrant         (vectors: one collection per user+project)
-                         └▶ MongoDB        (users, API keys, projects, stats/limits)
-                         └▶ embedding API  (remote, text → vector)
+
+```mermaid
+flowchart LR
+    agent[Agent] --> web[FastAPI / MCP]
+    web <-->qdrant[Qdrant]
+    web <--> mongo[MongoDB]
+    web <--> embed[Embedding API]
 ```
 
 Qdrant collections are created **lazily**: nothing touches Qdrant until the
@@ -171,26 +174,26 @@ in tests without a live backend.
 Set via environment (a local `.env` is auto-loaded; never commit it - see
 [`.env.example`](.env.example)):
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `MONGODB_URI` | _(required)_ | Remote, managed MongoDB connection string. |
-| `MONGODB_DB` | `recall_select` | Database name. |
-| `QDRANT_URL` | `http://qdrant:6333` | Qdrant endpoint (internal compose network). |
-| `QDRANT_API_KEY` | _(none locally; required in prod)_ | Shared secret between the app and Qdrant. Compose sets Qdrant's `QDRANT__SERVICE__API_KEY` from it, and the app sends it on every request. It's the only gate on the `qdrant.recall.select` dashboard, which has no auth of its own. |
-| `VECTOR_SIZE` | `768` | Vector dimension for every collection. The remote embedder is asked (via the API `dimensions` param) to return vectors of exactly this size, so the two stay in sync. |
-| `EMBEDDING_API_KEY` | _(required)_ | API key for the remote embedding API. |
-| `EMBEDDING_BASE_URL` | `https://api.deepinfra.com/v1` | OpenAI-compatible embeddings API base URL. |
-| `GOOGLE_CLIENT_ID` | _(required for sign-in)_ | Google OAuth 2.0 Web client id. |
-| `GOOGLE_CLIENT_SECRET` | _(required for sign-in)_ | Google OAuth 2.0 client secret. |
-| `SESSION_SECRET` | _(dev fallback)_ | Signs the session cookie. Set a stable value in prod. |
-| `PUBLIC_BASE_URL` | `http://localhost:8000` | Public origin; builds the memory link + OAuth redirect URI. |
-| `MONOBANK_API_KEY` | _(required for payments)_ | Monobank acquiring merchant token. **Shared with the mcp-api.net platform** - same merchant, one account; invoices are told apart by `reference`. |
-| `MONOBANK_REDIRECT_URL` | `{PUBLIC_BASE_URL}/payment/success` | Where the shopper's browser returns after paying. |
-| `MONOBANK_WEBHOOK_URL` | `{PUBLIC_BASE_URL}/webhooks/monobank` | Server-to-server callback that grants the tier. Must be publicly reachable. |
-| `MONOBANK_WEBHOOK_VERIFY` | `1` | Verify the webhook's `X-Sign` against the merchant pubkey. Keep on wherever money moves; `0` only for local dev. |
-| `PAYMENT_RECONCILE_MINUTES` | `15` | How often to pull the real status of in-flight payments from Monobank, so a lost webhook can't strand a paying customer. `0` disables the sweep. |
-| `ADMIN_SECRET` | _(unset - area disabled)_ | Unlocks the owner admin area at `/admin`. Unset means every `/admin` route 404s. |
-| `ADMIN_SESSION_HOURS` | `12` | How long an unlocked admin session lasts before it re-locks. |
+| Variable                    | Default                               | Purpose                                                                                                                                                                                                                              |
+|-----------------------------|---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `MONGODB_URI`               | _(required)_                          | Remote, managed MongoDB connection string.                                                                                                                                                                                           |
+| `MONGODB_DB`                | `recall_select`                       | Database name.                                                                                                                                                                                                                       |
+| `QDRANT_URL`                | `http://qdrant:6333`                  | Qdrant endpoint (internal compose network).                                                                                                                                                                                          |
+| `QDRANT_API_KEY`            | _(none locally; required in prod)_    | Shared secret between the app and Qdrant. Compose sets Qdrant's `QDRANT__SERVICE__API_KEY` from it, and the app sends it on every request. It's the only gate on the `qdrant.recall.select` dashboard, which has no auth of its own. |
+| `VECTOR_SIZE`               | `768`                                 | Vector dimension for every collection. The remote embedder is asked (via the API `dimensions` param) to return vectors of exactly this size, so the two stay in sync.                                                                |
+| `EMBEDDING_API_KEY`         | _(required)_                          | API key for the remote embedding API.                                                                                                                                                                                                |
+| `EMBEDDING_BASE_URL`        | `https://api.deepinfra.com/v1`        | OpenAI-compatible embeddings API base URL.                                                                                                                                                                                           |
+| `GOOGLE_CLIENT_ID`          | _(required for sign-in)_              | Google OAuth 2.0 Web client id.                                                                                                                                                                                                      |
+| `GOOGLE_CLIENT_SECRET`      | _(required for sign-in)_              | Google OAuth 2.0 client secret.                                                                                                                                                                                                      |
+| `SESSION_SECRET`            | _(dev fallback)_                      | Signs the session cookie. Set a stable value in prod.                                                                                                                                                                                |
+| `PUBLIC_BASE_URL`           | `http://localhost:8000`               | Public origin; builds the memory link + OAuth redirect URI.                                                                                                                                                                          |
+| `MONOBANK_API_KEY`          | _(required for payments)_             | Monobank acquiring merchant token. **Shared with the mcp-api.net platform** - same merchant, one account; invoices are told apart by `reference`.                                                                                    |
+| `MONOBANK_REDIRECT_URL`     | `{PUBLIC_BASE_URL}/payment/success`   | Where the shopper's browser returns after paying.                                                                                                                                                                                    |
+| `MONOBANK_WEBHOOK_URL`      | `{PUBLIC_BASE_URL}/webhooks/monobank` | Server-to-server callback that grants the tier. Must be publicly reachable.                                                                                                                                                          |
+| `MONOBANK_WEBHOOK_VERIFY`   | `1`                                   | Verify the webhook's `X-Sign` against the merchant pubkey. Keep on wherever money moves; `0` only for local dev.                                                                                                                     |
+| `PAYMENT_RECONCILE_MINUTES` | `15`                                  | How often to pull the real status of in-flight payments from Monobank, so a lost webhook can't strand a paying customer. `0` disables the sweep.                                                                                     |
+| `ADMIN_SECRET`              | _(unset - area disabled)_             | Unlocks the owner admin area at `/admin`. Unset means every `/admin` route 404s.                                                                                                                                                     |
+| `ADMIN_SESSION_HOURS`       | `12`                                  | How long an unlocked admin session lasts before it re-locks.                                                                                                                                                                         |
 
 ### Owner admin area (`/admin`)
 
@@ -293,12 +296,12 @@ the pushed commit's own deploy logic. Deploys are serialized (`concurrency`), an
 
 One-time setup - add under **Settings → Secrets and variables → Actions**:
 
-| Secret | Required | Purpose |
-| --- | --- | --- |
-| `DEPLOY_SSH_KEY` | yes | Private key whose public half is in the deploy user's `~/.ssh/authorized_keys`. |
-| `DEPLOY_HOST` / `DEPLOY_USER` | yes | Server address and the SSH user to deploy as. |
-| `DEPLOY_PORT` | no | SSH port (default `22`). |
-| `DEPLOY_KNOWN_HOSTS` | no | Pin the server host key; if unset, CI trusts it on first use via `ssh-keyscan`. |
+| Secret                        | Required | Purpose                                                                         |
+|-------------------------------|----------|---------------------------------------------------------------------------------|
+| `DEPLOY_SSH_KEY`              | yes      | Private key whose public half is in the deploy user's `~/.ssh/authorized_keys`. |
+| `DEPLOY_HOST` / `DEPLOY_USER` | yes      | Server address and the SSH user to deploy as.                                   |
+| `DEPLOY_PORT`                 | no       | SSH port (default `22`).                                                        |
+| `DEPLOY_KNOWN_HOSTS`          | no       | Pin the server host key; if unset, CI trusts it on first use via `ssh-keyscan`. |
 
 App secrets (`MONGODB_URI`, OAuth, etc.) stay in the server's `.env` - CI never sees
 them.
