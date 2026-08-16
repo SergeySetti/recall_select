@@ -78,6 +78,9 @@ en:
     heading: Your account
     back: Home
     plan: Your plan
+    renew: Renew plan
+    renew_expiring: "Your %{plan} plan ends in %{days} day(s), on %{date}. Renew it to keep your allowance."
+    renew_lapsed: "Your %{plan} plan ended on %{date}. You are on the Free plan now - renew to restore your allowance."
     plan_until: "Active until %{date}"
     upgrade: Upgrade plan
     usage_heading: This month

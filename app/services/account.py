@@ -74,6 +74,8 @@ def overview(user: dict, *, db: Database | None = None) -> dict:
         "plan_name": billing.tier_name(tier),
         # When the current paid grant runs out (None on free / open-ended).
         "tier_expires_at": billing.tier_expiry(user) if tier != billing.FREE_TIER else None,
+        # Whether to prompt a renewal, and for which plan (see billing).
+        "renewal": billing.renewal_state(user),
         "period": usage.current_period(),
         "calls_used": calls_used,
         "calls_allowance": calls_allowance,

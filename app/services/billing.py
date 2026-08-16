@@ -181,7 +181,15 @@ def grant_tier(
     extending = user.get("tier") == tier and current is not None and current > now
     expires = None if days is None else (current if extending else now) + timedelta(days=days)
 
-    updated = users.update_user(user_id, db=db, tier=tier, tier_expires_at=expires)
+    # Granting clears any "your plan ended" marker - they are current again.
+    updated = users.update_user(
+        user_id,
+        db=db,
+        tier=tier,
+        tier_expires_at=expires,
+        lapsed_tier=None,
+        tier_lapsed_at=None,
+    )
     db.tier_grants.insert_one(
         {
             "user_id": user_id,
@@ -217,12 +225,83 @@ def downgrade_expired(*, db: Database | None = None) -> int:
                 "tier": {"$ne": FREE_TIER},
                 "tier_expires_at": {"$ne": None, "$lte": utcnow()},
             },
-            {"_id": 1},
+            # `tier` too: it becomes the lapse marker the renewal prompt reads.
+            {"_id": 1, "tier": 1},
         )
     )
     for user in expired:
-        users.update_user(user["_id"], db=db, tier=FREE_TIER, tier_expires_at=None)
+        # Remember what lapsed and when: once ``tier`` is back to free the page
+        # would otherwise have no way to say "your plan ended, renew it".
+        users.update_user(
+            user["_id"],
+            db=db,
+            tier=FREE_TIER,
+            tier_expires_at=None,
+            lapsed_tier=user["tier"],
+            tier_lapsed_at=utcnow(),
+        )
     return len(expired)
+
+
+# --- Renewal prompts -------------------------------------------------------
+# Nothing renews automatically, so the app has to *ask*. These two windows
+# decide when: warn while the plan is still running but nearly out, and keep
+# offering the renewal for a while after it lapses.
+
+RENEWAL_WARNING_DAYS = 7
+LAPSED_PROMPT_DAYS = 30
+
+
+def renewal_state(user: dict | None) -> dict:
+    """What (if anything) the account page should say about renewing.
+
+    ``status`` is one of:
+
+    * ``none`` - free account, or a paid grant with no expiry. Say nothing.
+    * ``active`` - paid and comfortably in credit. Show the date, don't nag.
+    * ``expiring`` - paid, ``RENEWAL_WARNING_DAYS`` or fewer left.
+    * ``lapsed`` - ran out within the last ``LAPSED_PROMPT_DAYS``.
+
+    ``plan_id`` is what the checkout endpoint takes, so the prompt can offer a
+    one-click renewal of the plan they actually had.
+    """
+    quiet = {"status": "none", "plan_id": None, "plan_name": None,
+             "expires_at": None, "days_left": None}
+    if not user:
+        return quiet
+
+    now = utcnow()
+    tier = effective_tier(user)
+
+    if tier != FREE_TIER:
+        expires = _as_aware(user.get("tier_expires_at"))
+        if expires is None:
+            return quiet  # open-ended grant: nothing to renew
+        plan = _PLANS_BY_TIER.get(tier)
+        # Round up: with 20 hours left a user should read "1 day", not "0".
+        remaining = expires - now
+        days_left = remaining.days + (1 if remaining.seconds else 0)
+        return {
+            "status": "expiring" if days_left <= RENEWAL_WARNING_DAYS else "active",
+            "plan_id": plan.id if plan else None,
+            "plan_name": tier_name(tier),
+            "expires_at": expires,
+            "days_left": days_left,
+        }
+
+    lapsed_at = _as_aware(user.get("tier_lapsed_at"))
+    lapsed_tier = user.get("lapsed_tier")
+    if lapsed_at and lapsed_tier and (now - lapsed_at) <= timedelta(days=LAPSED_PROMPT_DAYS):
+        plan = _PLANS_BY_TIER.get(lapsed_tier)
+        return {
+            "status": "lapsed",
+            "plan_id": plan.id if plan else None,
+            "plan_name": tier_name(lapsed_tier),
+            "expires_at": lapsed_at,
+            "days_left": 0,
+        }
+
+    return quiet
 
 
 # Reverse lookup from the granted ``tier`` string to its Plan. ``PLANS`` is keyed

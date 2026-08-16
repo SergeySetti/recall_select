@@ -112,6 +112,37 @@
 
         <div class="col-md-9">
 
+      {# Renewal prompt. Nothing renews automatically, so the account has to ask:
+         shown while a plan is nearly out, and for a month after it lapsed. Sits
+         above the sections (which are hash-switched and hidden by default) so it
+         is seen on arrival rather than only by whoever opens Billing. #}
+      {% set renewal = summary.renewal %}
+      {% if renewal.status in ("expiring", "lapsed") %}
+      <div class="rs-card p-3 mb-4 d-flex flex-wrap justify-content-between align-items-center gap-2"
+           style="border-color: var(--rs-accent);">
+        <div class="small">
+          {% if renewal.status == "expiring" %}
+            {{ t("rs.account.renew_expiring",
+                  plan=renewal.plan_name,
+                  days=renewal.days_left,
+                  date=renewal.expires_at.strftime("%d.%m.%Y")) }}
+          {% else %}
+            {{ t("rs.account.renew_lapsed",
+                  plan=renewal.plan_name,
+                  date=renewal.expires_at.strftime("%d.%m.%Y")) }}
+          {% endif %}
+        </div>
+        {% if renewal.plan_id %}
+          <button class="btn btn-rs btn-sm px-3" type="button"
+                  onclick="renew({{ renewal.plan_id | tojson }}, this)">
+            {{ t("rs.account.renew") }}
+          </button>
+        {% else %}
+          <a class="btn btn-rs btn-sm px-3" href="/plans">{{ t("rs.account.upgrade") }}</a>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <!-- Billing: plan + monthly usage -->
       <section id="section-billing" class="d-none">
       <h2 class="h5 fw-bold mb-2">{{ t("rs.account.nav_billing") }}</h2>
@@ -281,7 +312,27 @@
       revokeError: {{ t("rs.account.js.revoke_error") | tojson }},
       copied: {{ t("rs.js.copied") | tojson }},
       copyError: {{ t("rs.docs.copy_error") | tojson }},
+      checkoutError: {{ t("rs.js.checkout_error") | tojson }},
     };
+
+    // Renew the plan the prompt is about: same checkout the plans page uses,
+    // one click from here because the user already knows what they want.
+    async function renew(plan, btn) {
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/me/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan }),
+        });
+        if (!resp.ok) throw new Error('checkout failed: ' + resp.status);
+        const data = await resp.json();
+        window.location.href = data.pay_url;
+      } catch (e) {
+        alert(I18N.checkoutError);
+        btn.disabled = false;
+      }
+    }
 
     // Sidebar sections. The hash is the whole state (#projects / #api-keys /
     // #billing), so plain <a href="#…"> clicks, reloads after delete/revoke,

@@ -155,6 +155,14 @@ still in credit *extends* the window rather than restarting it. Entitlement is
 read through `effective_tier`, so an expired grant stops paying out immediately
 even before the sweep rewrites the stored field.
 
+Because nothing renews on its own, the app **asks**: `billing.renewal_state(user)`
+drives a prompt on `/account` - a warning with a one-click Renew button in the
+last `RENEWAL_WARNING_DAYS` (7) of a plan, and a "your plan ended, renew it"
+prompt for `LAPSED_PROMPT_DAYS` (30) afterwards (the downgrade sweep records
+`lapsed_tier` / `tier_lapsed_at` so the page can still say what ran out). Renew
+posts to the same `/api/me/checkout` the plans page uses, pre-set to the plan
+they held. There is no email yet - the prompt only reaches users who visit.
+
 Every CRUD function takes an optional `db=`/`client=` argument so it can be driven
 in tests without a live backend.
 

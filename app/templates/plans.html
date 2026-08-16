@@ -86,7 +86,7 @@
           <tr>
             <td class="fw-semibold text-nowrap">
               {{ p.name }}
-              {% if user and user.tier == p.tier %}
+              {% if user and current_tier == p.tier %}
               <span class="badge rs-badge-current ms-1">{{ t("rs.plans.current") }}</span>
               {% endif %}
             </td>
@@ -94,7 +94,7 @@
             <td class="text-end">{{ p.projects }}</td>
             <td class="text-end text-nowrap">{{ p.price }}</td>
             <td class="text-end">
-              {% if p.purchasable and not (user and user.tier == p.tier) %}
+              {% if p.purchasable and not (user and current_tier == p.tier) %}
                 {% if user %}
                 <button class="btn btn-rs btn-sm px-3" type="button" onclick="checkout('{{ p.id }}', this)">
                   {{ t("rs.plans.choose") }}

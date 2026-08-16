@@ -223,6 +223,9 @@ async def plans(request: Request) -> HTMLResponse:
         {
             "plans": billing.plans_table(),
             "user": user,
+            # The tier in force *now* - a lapsed paid_2x must not read as the
+            # current plan, or its owner is left with no button to renew it.
+            "current_tier": billing.effective_tier(user),
             "t": translator(locale),
             "locale": locale,
             "locales": SUPPORTED_LOCALES,

@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from app.api import payments
 from app.api.deps import get_current_user, get_database, get_qdrant
 from app.main import app
-from app.services import billing, mongo, monobank, users
+from app.services import account, billing, mongo, monobank, users
 from tests.test_api import FakeQdrant
 
 
@@ -393,3 +393,87 @@ def test_quota_check_uses_the_effective_tier(mongo_db):
 
     with pytest.raises(QuotaExceeded):
         usage.check_call_allowed(user["_id"], db=mongo_db)
+
+
+# --- Renewal prompts -------------------------------------------------------
+
+
+def _with_expiry(user: dict, delta: timedelta) -> dict:
+    return {**user, "tier_expires_at": mongo.utcnow() + delta}
+
+
+def test_renewal_state_quiet_for_free_and_open_ended(mongo_db):
+    free = users.add_user("quiet@example.com", db=mongo_db)
+    forever = users.add_user("gifted@example.com", tier="unlim", db=mongo_db)
+
+    assert billing.renewal_state(free)["status"] == "none"
+    assert billing.renewal_state(forever)["status"] == "none"
+    assert billing.renewal_state(None)["status"] == "none"
+
+
+def test_renewal_state_warns_only_near_the_end(mongo_db):
+    user = users.add_user("warn@example.com", tier="paid_2x", db=mongo_db)
+
+    comfortable = billing.renewal_state(_with_expiry(user, timedelta(days=20)))
+    nearly_out = billing.renewal_state(_with_expiry(user, timedelta(days=3)))
+
+    assert comfortable["status"] == "active"
+    assert nearly_out["status"] == "expiring"
+    assert nearly_out["days_left"] == 3
+    # The prompt can offer the very plan they hold.
+    assert nearly_out["plan_id"] == "2x"
+    assert nearly_out["plan_name"] == "Paid 2x"
+
+
+def test_renewal_state_rounds_a_part_day_up(mongo_db):
+    user = users.add_user("hours@example.com", tier="paid_2x", db=mongo_db)
+
+    state = billing.renewal_state(_with_expiry(user, timedelta(hours=20)))
+
+    # 20 hours left reads as "1 day", never "0".
+    assert state["days_left"] == 1
+    assert state["status"] == "expiring"
+
+
+def test_renewal_state_prompts_after_a_lapse_then_stops(mongo_db):
+    user = users.add_user("lapsed2@example.com", db=mongo_db)
+    billing.grant_tier(user["_id"], "paid_2x", days=30, reason="x", source="owner", db=mongo_db)
+    mongo_db.users.update_one(
+        {"_id": user["_id"]}, {"$set": {"tier_expires_at": mongo.utcnow() - timedelta(hours=1)}}
+    )
+    billing.downgrade_expired(db=mongo_db)
+    lapsed = users.get_user(user["_id"], db=mongo_db)
+
+    state = billing.renewal_state(lapsed)
+    assert state["status"] == "lapsed"
+    assert state["plan_id"] == "2x"
+    assert lapsed["tier"] == "free"  # entitlement really is gone
+
+    # Old news eventually stops being a prompt.
+    stale = {**lapsed, "tier_lapsed_at": mongo.utcnow() - timedelta(days=45)}
+    assert billing.renewal_state(stale)["status"] == "none"
+
+
+def test_renewing_clears_the_lapsed_prompt(mongo_db):
+    user = users.add_user("returning@example.com", db=mongo_db)
+    mongo_db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"lapsed_tier": "paid_2x", "tier_lapsed_at": mongo.utcnow()}},
+    )
+
+    renewed = billing.grant_tier(
+        user["_id"], "paid_2x", days=30, reason="renewal", source="monobank", db=mongo_db
+    )
+
+    assert billing.renewal_state(renewed)["status"] == "active"
+    assert renewed.get("lapsed_tier") is None
+
+
+def test_account_overview_carries_the_renewal_prompt(mongo_db):
+    user = users.add_user("page@example.com", tier="paid_2x", db=mongo_db)
+    soon = _with_expiry(user, timedelta(days=2))
+
+    summary = account.overview(soon, db=mongo_db)
+
+    assert summary["renewal"]["status"] == "expiring"
+    assert summary["plan_name"] == "Paid 2x"
