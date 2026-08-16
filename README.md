@@ -155,6 +155,25 @@ Set via environment (a local `.env` is auto-loaded; never commit it - see
 | `MONOBANK_REDIRECT_URL` | `{PUBLIC_BASE_URL}/payment/success` | Where the shopper's browser returns after paying. |
 | `MONOBANK_WEBHOOK_URL` | `{PUBLIC_BASE_URL}/webhooks/monobank` | Server-to-server callback that grants the tier. Must be publicly reachable. |
 | `MONOBANK_WEBHOOK_VERIFY` | `1` | Verify the webhook's `X-Sign` against the merchant pubkey. Keep on wherever money moves; `0` only for local dev. |
+| `ADMIN_SECRET` | _(unset - area disabled)_ | Unlocks the owner admin area at `/admin`. Unset means every `/admin` route 404s. |
+| `ADMIN_SESSION_HOURS` | `12` | How long an unlocked admin session lasts before it re-locks. |
+
+### Owner admin area (`/admin`)
+
+A read-only window onto any user's personal area, for support and for seeing
+what a user sees. Set `ADMIN_SECRET` (generate:
+`python -c "import secrets; print(secrets.token_urlsafe(32))"`), recreate the
+web container, then open `{PUBLIC_BASE_URL}/admin` and enter the key once per
+session. `/admin/users` lists every account - searchable by email, name, or user
+id - and each row opens that user's plan, usage this period, projects with their
+memory counts, and memory links in masked form.
+
+The boundaries are deliberate: the key is submitted by POST (never a URL
+parameter, so it stays out of history and access logs), repeated wrong guesses
+lock a client out for five minutes, the session re-locks itself after
+`ADMIN_SESSION_HOURS`, and **no route here writes anything or reveals memory
+text or key secrets** - the owner sees the shape of an account, not its
+contents. With `ADMIN_SECRET` unset the area doesn't exist at all.
 
 ### Auth (Google sign-in)
 

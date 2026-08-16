@@ -29,6 +29,10 @@ services:
             - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET must be set}
             - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
             - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-https://recall.select}
+            # Owner-only admin area at /admin (read-only view of any account).
+            # Optional: leave it empty and every /admin route 404s.
+            - ADMIN_SECRET=${ADMIN_SECRET:-}
+            - ADMIN_SESSION_HOURS=${ADMIN_SESSION_HOURS:-12}
             # Monobank acquiring (checkout + webhook). Required: without the
             # merchant token every /api/me/checkout is a 503. Redirect/webhook
             # URLs may stay empty - the app derives them from PUBLIC_BASE_URL.

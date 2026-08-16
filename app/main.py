@@ -13,7 +13,17 @@ from starlette.routing import Route
 from pymongo.database import Database
 
 from app import auth, mcp_server
-from app.api import api_keys, collections, connect, me, memory, payments, projects, users
+from app.api import (
+    admin,
+    api_keys,
+    collections,
+    connect,
+    me,
+    memory,
+    payments,
+    projects,
+    users,
+)
 from app.api.deps import get_optional_user
 from app.dependencies import app_container
 from app.i18n import (
@@ -82,6 +92,10 @@ app.include_router(collections.router)
 app.include_router(memory.router)
 # Monobank checkout + the verified webhook that grants a paid tier.
 app.include_router(payments.router)
+# The owner's read-only view of any account. Every route 404s unless
+# ADMIN_SECRET is set in the environment, so an unconfigured deployment has no
+# admin area to find.
+app.include_router(admin.router)
 # The MCP server behind the memory link. A raw Starlette route (not a FastAPI
 # handler) - the Streamable HTTP transport speaks ASGI directly. Registered
 # after the routers so /m/{key}.md (instructions) keeps winning for .md URLs.

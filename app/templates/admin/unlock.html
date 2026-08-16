@@ -1,0 +1,30 @@
+{% extends "admin/_base.html" %}
+{% block title %}Unlock{% endblock %}
+
+{# No ribbon here: nothing is unlocked yet, so there is nowhere to navigate to. #}
+{% block ribbon %}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center pt-5">
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="rs-card p-4">
+      <h1 class="h5 mb-1">Owner admin</h1>
+      <p class="text-muted-beige small mb-4">Enter the admin key from the server environment.</p>
+
+      {% if error %}
+        <div class="alert alert-danger py-2 small">{{ error }}</div>
+      {% endif %}
+
+      {# POST, so the key never reaches the URL, browser history, or access logs. #}
+      <form method="post" action="/admin">
+        <label for="secret" class="form-label small text-muted-beige">Admin key</label>
+        <input type="password" class="form-control mb-3" id="secret" name="secret"
+               autocomplete="off" autofocus {% if wait %}disabled{% endif %}>
+        <button type="submit" class="btn btn-rs w-100" {% if wait %}disabled{% endif %}>
+          Unlock
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

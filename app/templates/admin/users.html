@@ -1,0 +1,51 @@
+{% extends "admin/_base.html" %}
+{% block title %}Users{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-3">
+  <div>
+    <h1 class="h4 mb-1">Users</h1>
+    <p class="text-muted-beige small mb-0">
+      {{ total }} registered{% if query %} - showing matches for "{{ query }}"{% endif %}
+    </p>
+  </div>
+  <form method="get" action="/admin/users" class="d-flex gap-2">
+    <input type="search" name="q" value="{{ query }}" class="form-control form-control-sm"
+           placeholder="email, name, or user id" style="min-width: 16rem;">
+    <button class="btn btn-rs btn-sm" type="submit">Search</button>
+  </form>
+</div>
+
+{% if rows %}
+<div class="rs-card p-0 overflow-auto">
+  <table class="table rs-table mb-0 align-middle">
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>Name</th>
+        <th>Plan</th>
+        <th class="text-end">Memories</th>
+        <th class="text-end">Projects with data</th>
+        <th>Joined</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td><a href="/admin/users/{{ row.id }}">{{ row.email or "-" }}</a></td>
+        <td>{{ row.name or "-" }}</td>
+        <td>{{ row.tier }}</td>
+        <td class="text-end">{{ row.memories }}</td>
+        <td class="text-end">{{ row.projects_with_data }}</td>
+        <td class="text-muted-beige small">
+          {{ row.created_at.strftime("%Y-%m-%d") if row.created_at else "-" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="rs-card p-4 text-muted-beige">No users match.</div>
+{% endif %}
+{% endblock %}

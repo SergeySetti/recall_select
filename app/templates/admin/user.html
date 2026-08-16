@@ -1,0 +1,97 @@
+{% extends "admin/_base.html" %}
+{% block title %}{{ user.email or user.id }}{% endblock %}
+
+{% block content %}
+<p class="mb-2"><a href="/admin/users" class="small">&larr; All users</a></p>
+
+<h1 class="h4 mb-1">{{ user.email or "(no email)" }}</h1>
+<p class="text-muted-beige small">
+  <span class="rs-mono">{{ user.id }}</span>
+  {% if user.name %} - {{ user.name }}{% endif %}
+  {% if user.has_google_identity %} - Google sign-in{% endif %}
+</p>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="rs-card p-3 h-100">
+      <div class="text-muted-beige small">Plan</div>
+      <div class="fs-5">{{ summary.plan_name }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="rs-card p-3 h-100">
+      <div class="text-muted-beige small">Calls this period ({{ summary.period }})</div>
+      <div class="fs-5">
+        {{ summary.calls_used }}{% if summary.calls_allowance is not none %} / {{ summary.calls_allowance }}{% else %} <span class="text-muted-beige small">unlimited</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="rs-card p-3 h-100">
+      <div class="text-muted-beige small">Memories stored</div>
+      <div class="fs-5">{{ summary.memories_total }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="rs-card p-3 h-100">
+      <div class="text-muted-beige small">Projects</div>
+      <div class="fs-5">
+        {{ summary.projects_used }}{% if summary.project_allowance is not none %} / {{ summary.project_allowance }}{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2 class="h6 text-muted-beige mt-4 mb-2">Projects</h2>
+{% if summary.projects %}
+<div class="rs-card p-0 overflow-auto mb-4">
+  <table class="table rs-table mb-0 align-middle">
+    <thead>
+      <tr><th>Name</th><th>Project id</th><th class="text-end">Memories</th><th>Default</th></tr>
+    </thead>
+    <tbody>
+      {% for project in summary.projects %}
+      <tr>
+        <td>{{ project.name }}</td>
+        <td class="rs-mono small text-muted-beige">{{ project.id }}</td>
+        <td class="text-end">{{ project.points_count }}</td>
+        <td>{{ "yes" if project.is_default else "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="rs-card p-3 text-muted-beige mb-4">No projects yet.</div>
+{% endif %}
+
+<h2 class="h6 text-muted-beige mt-4 mb-2">Memory links</h2>
+{% if summary.api_keys %}
+<div class="rs-card p-0 overflow-auto mb-4">
+  <table class="table rs-table mb-0 align-middle">
+    <thead>
+      <tr><th>Key</th><th>Label</th><th>Created</th><th>Last used</th></tr>
+    </thead>
+    <tbody>
+      {% for key in summary.api_keys %}
+      <tr>
+        {# Masked at the source (app.services.api_keys): the secret is never stored,
+           so there is nothing here to reveal even to the owner. #}
+        <td class="rs-mono">{{ key.masked }}</td>
+        <td>{{ key.label or "-" }}{% if key.is_default %} <span class="text-muted-beige small">(link)</span>{% endif %}</td>
+        <td class="text-muted-beige small">{{ key.created_at.strftime("%Y-%m-%d %H:%M") if key.created_at else "-" }}</td>
+        <td class="text-muted-beige small">{{ key.last_used_at.strftime("%Y-%m-%d %H:%M") if key.last_used_at else "never" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="rs-card p-3 text-muted-beige mb-4">No memory link generated yet.</div>
+{% endif %}
+
+<p class="text-muted-beige small">
+  Joined {{ user.created_at.strftime("%Y-%m-%d %H:%M") if user.created_at else "-" }}.
+  Memory text is not shown here - this view reports the shape of the account, not its contents.
+</p>
+{% endblock %}
