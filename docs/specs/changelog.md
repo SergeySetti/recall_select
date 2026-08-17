@@ -5,6 +5,28 @@ Notable changes, newest first. Complements the point-in-time snapshots
 
 ---
 
+## 2026-08-17 (later)
+
+### Trust Caddy's forwarded headers; self-healing container recreate
+
+- **`FORWARDED_ALLOW_IPS`.** uvicorn trusts `X-Forwarded-Proto`/`-For` only from
+  `127.0.0.1` by default, so behind Caddy every request looked like plain HTTP
+  from a container address: `POST /mcp/` answered `Location:
+  http://recall.select/mcp` (Caddy bounced it back to HTTPS, but a strict client
+  that refuses an http redirect just fails), and `/admin`'s audit log recorded
+  the proxy's IP as the client for every sign-in. Compose now sets it to the
+  `caddy_net` subnet - only Caddy can reach the container, which isn't published
+  on the host. Regression test in `test_mcp.py` pins the https redirect.
+- **Interrupted deploys no longer wedge the next one.** Compose renames the
+  container it is replacing to `<short-id>_<name>` before creating its
+  replacement; a deploy killed in that window leaves the backup behind and the
+  next `up` dies with `Conflict. The container name ... is already in use`
+  (which is exactly how the Hermes-guide deploy ended). `_server_deploy.sh` now
+  clears those backups before `up` and retries once if `up` still fails - the
+  pattern can only match a backup, never a live container.
+
+---
+
 ## 2026-08-17
 
 ### Hermes integration guide (YAML), and the header endpoint says what it is

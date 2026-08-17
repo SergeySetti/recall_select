@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pymongo.database import Database
 from qdrant_client import QdrantClient
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app import main, mcp_server
 from app.services import api_keys, billing, mongo, usage, users, vector_semantics
@@ -335,3 +336,26 @@ def test_md_route_still_serves_instructions(env):
             assert f"/m/{env.key}" in resp.text
     finally:
         main.app.dependency_overrides.clear()
+
+
+def test_trailing_slash_redirect_keeps_the_https_scheme(env):
+    """`POST /mcp/` must redirect to an **https** URL when fronted by the proxy.
+
+    Starlette builds the trailing-slash redirect from the request scheme, which
+    uvicorn only takes from `X-Forwarded-Proto` for peers listed in
+    `FORWARDED_ALLOW_IPS` (compose sets it to the caddy_net subnet - see
+    docker-compose.yml). Left at uvicorn's 127.0.0.1 default, prod answered with
+    `Location: http://recall.select/mcp`: harmless once Caddy bounced it back,
+    but a strict MCP client that refuses an http redirect just fails there.
+    """
+    proxied = ProxyHeadersMiddleware(main.app, trusted_hosts="*")
+    with TestClient(proxied, base_url="http://recall.select") as client:
+        resp = client.post(
+            "/mcp/",
+            headers={**HEADERS, "x-forwarded-proto": "https"},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "https://recall.select/mcp"

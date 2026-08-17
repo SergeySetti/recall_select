@@ -56,7 +56,31 @@ git reset --hard "origin/$BRANCH"
 
 echo "    Building and (re)starting the web container…"
 docker compose build
-docker compose up -d --remove-orphans
+
+# Replacing a container, Compose first *renames* the old one out of the way to
+# `<short-id>_<name>`, then creates the new one, then drops the backup. Kill the
+# deploy (or the daemon) in that window and the backup survives - and the next
+# deploy fails with `Conflict. The container name "/<id>_recall-select-web" is
+# already in use`, because it tries to rename to a name that is taken. Those
+# backups are never the live container (a real name can't start with hex + "_"),
+# so clearing them is safe and makes the deploy self-healing.
+clear_stale_backups() {
+  local stale
+  stale=$(docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]+_recall-select-' || true)
+  if [ -n "$stale" ]; then
+    echo "    Removing leftover backup container(s) from an interrupted deploy:"
+    printf '      %s\n' $stale
+    # shellcheck disable=SC2086 - word splitting is what we want here.
+    docker rm -f $stale >/dev/null
+  fi
+}
+
+clear_stale_backups
+if ! docker compose up -d --remove-orphans; then
+  echo "!!  compose up failed - clearing stale containers and retrying once…"
+  clear_stale_backups
+  docker compose up -d --remove-orphans
+fi
 
 echo "    Reloading the shared Caddy proxy (picks up deploy/caddy fragments)…"
 docker exec "$PROXY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile 2>/dev/null \

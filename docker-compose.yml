@@ -29,6 +29,16 @@ services:
             - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET must be set}
             - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
             - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-https://recall.select}
+            # Which peers uvicorn may believe about X-Forwarded-Proto/For. It
+            # defaults to 127.0.0.1, so behind Caddy every request looked like
+            # plain HTTP from a container IP: a trailing-slash 307 (e.g. POST
+            # /mcp/) redirected to an http:// URL, and the admin audit log
+            # recorded Caddy's address as the client. Only Caddy can reach this
+            # container (it is not published on the host), so trusting the
+            # caddy_net subnet is enough - override if that network is ever
+            # recreated with a different subnet
+            # (docker network inspect caddy_net).
+            - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-172.25.0.0/16}
             # Owner-only admin area at /admin (read-only view of any account).
             # Optional: leave it empty and every /admin route 404s.
             - ADMIN_SECRET=${ADMIN_SECRET:-}
