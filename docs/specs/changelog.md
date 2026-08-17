@@ -23,7 +23,15 @@ Notable changes, newest first. Complements the point-in-time snapshots
   next `up` dies with `Conflict. The container name ... is already in use`
   (which is exactly how the Hermes-guide deploy ended). `_server_deploy.sh` now
   clears those backups before `up` and retries once if `up` still fails - the
-  pattern can only match a backup, never a live container.
+  pattern can only match a backup, never a live container. The retry waits for
+  the removals to finalize first (`docker rm -f` returns before the daemon frees
+  the name, so an instant retry hits "removal … already in progress").
+- **The deploy now judges itself by the end state**, not by `up`'s exit code:
+  it fails only if `recall-select-web` isn't running the image just built. Both
+  conflicts so far converged correctly while `up` reported failure, which would
+  otherwise leave every deploy looking broken. Compose v5.3.1 / Docker 29.6.1
+  appears to re-attempt the backup rename within a single `up`; the root cause
+  is upstream, this makes it non-fatal and visible.
 
 ---
 

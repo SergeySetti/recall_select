@@ -75,11 +75,47 @@ clear_stale_backups() {
   fi
 }
 
+wait_for_backups_gone() {
+  # `docker rm -f` returns before the daemon has finished unlinking the name, and
+  # retrying inside that window fails with "removal of container … is already in
+  # progress". Wait for the names to actually disappear.
+  for _ in $(seq 1 30); do
+    docker ps -a --format '{{.Names}}' | grep -qE '^[0-9a-f]+_recall-select-' || return 0
+    sleep 1
+  done
+  echo "!!  backup containers still present after 30s - continuing anyway."
+}
+
+# Did we end up with a *running* web container on the image we just built? This
+# is the check that decides whether the deploy worked. `docker compose up` has
+# been seen to report a rename conflict and converge correctly anyway, so its
+# exit code alone would both fail good deploys and (in principle) pass bad ones.
+web_is_current() {
+  local want have state
+  want=$(docker image inspect -f '{{.Id}}' recall-select-web 2>/dev/null) || return 1
+  for _ in $(seq 1 30); do
+    have=$(docker inspect -f '{{.Image}}' recall-select-web 2>/dev/null || true)
+    state=$(docker inspect -f '{{.State.Status}}' recall-select-web 2>/dev/null || true)
+    [ "$have" = "$want" ] && [ "$state" = "running" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
 clear_stale_backups
 if ! docker compose up -d --remove-orphans; then
   echo "!!  compose up failed - clearing stale containers and retrying once…"
   clear_stale_backups
-  docker compose up -d --remove-orphans
+  wait_for_backups_gone
+  docker compose up -d --remove-orphans || true
+fi
+
+if web_is_current; then
+  echo "    Web container is running the image just built."
+else
+  echo "!!  recall-select-web is NOT running the freshly built image - deploy failed."
+  docker compose ps
+  exit 1
 fi
 
 echo "    Reloading the shared Caddy proxy (picks up deploy/caddy fragments)…"
