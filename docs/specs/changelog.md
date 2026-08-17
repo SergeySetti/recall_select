@@ -5,6 +5,43 @@ Notable changes, newest first. Complements the point-in-time snapshots
 
 ---
 
+## 2026-08-17
+
+### Hermes integration guide (YAML), and the header endpoint says what it is
+
+A Hermes user reported that `https://recall.select/mcp` with an `Authorization`
+header "returns 404, so the endpoint doesn't work", and stopped before
+connecting. The endpoint is fine - a 404 there is the deliberate
+`unknown memory link` auth response, identical however an invalid key is probed -
+but nothing we shipped told them that, and we had no Hermes-shaped setup to
+follow, so they were hand-translating the JSON config into Hermes's YAML.
+
+- **`/docs/integrations/hermes`.** Hermes reads `~/.hermes/config.yaml` and keys
+  servers under snake_case `mcp_servers`, with the HTTP transport inferred from
+  `url` (no `type` field). New `docs.mcp_config_yaml` renders that from the same
+  `mcp_config` entry the JSON and TOML forms use, so the three cannot drift; the
+  registry gained `config_format="yaml"` and the header-auth alternative now
+  renders in the page's own syntax instead of always JSON.
+- **Tool names.** Hermes prefixes borrowed tools as `mcp__<server>__<tool>` and
+  folds non-alphanumerics to `_`, so `store_memory` surfaces as
+  `mcp__recall_select__store_memory`. Both the page and the per-key `.md` say so -
+  that mismatch is the other half of "I can't see your store/recall/delete tools".
+- **Secret out of the file.** `hermes mcp add recall-select --url .../mcp --auth
+  header` keeps the key in the profile's `.env` as `MCP_RECALL_SELECT_API_KEY`
+  and leaves `${MCP_RECALL_SELECT_API_KEY}` in `config.yaml`; `docs.hermes_env_var`
+  mirrors Hermes's own derivation so the docs name the right variable.
+- **`.md` instructions** now carry the Hermes YAML block (both forms) and state
+  outright that a 404 from `/mcp` is an authentication failure, not a missing
+  route.
+- `Integration._render` raises on a TOML + header combination rather than
+  silently emitting a config with the credential dropped.
+
+Known, unfixed: `POST /mcp/` (trailing slash) 307s to a `http://` Location -
+uvicorn isn't trusting the proxy's `X-Forwarded-Proto`. Caddy bounces it back to
+HTTPS, but a strict client that refuses http redirects will fail there.
+
+---
+
 ## 2026-07-02 (later still)
 
 ### Security: API keys hashed at rest, reveal-once links, Bearer-header option, log hygiene

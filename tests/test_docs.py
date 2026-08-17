@@ -144,3 +144,91 @@ def test_agent_instructions_cover_codex(mongo_db=None):
     # The JSON form is still there for the clients that want it.
     assert '"mcpServers"' in md
     assert "https://recall.select/docs/integrations" in md
+
+
+# --- Hermes (YAML, snake_case mcp_servers) ---------------------------------
+# Hermes reads ~/.hermes/config.yaml. Like Codex it is neither JSON nor camelCase,
+# and its HTTP transport is inferred from `url` alone - no `type` field.
+
+
+def test_mcp_config_yaml_matches_the_json_entry():
+    url = "https://recall.select/m/abc"
+
+    yaml = docs.mcp_config_yaml(url)
+
+    assert yaml == (
+        "mcp_servers:\n"
+        "  recall-select:\n"
+        '    url: "https://recall.select/m/abc"'
+    )
+    # Same server name and URL as the JSON form - one source of truth.
+    assert docs.mcp_config(url)["mcpServers"][docs.SERVER_NAME]["url"] in yaml
+    # Hermes has no `type` key; a stray one would be an unknown field.
+    assert "type" not in yaml
+
+
+def test_mcp_config_yaml_header_form_nests_the_bearer_key():
+    yaml = docs.mcp_config_yaml("https://recall.select/mcp", header_key="secret")
+
+    assert yaml == (
+        "mcp_servers:\n"
+        "  recall-select:\n"
+        '    url: "https://recall.select/mcp"\n'
+        "    headers:\n"
+        '      Authorization: "Bearer secret"'
+    )
+
+
+def test_hermes_env_var_matches_hermes_own_naming():
+    """`hermes mcp add --auth header` derives MCP_<NAME>_API_KEY, hyphens folded."""
+    assert docs.hermes_env_var() == "MCP_RECALL_SELECT_API_KEY"
+    assert docs.hermes_env_var("my-server.io") == "MCP_MY_SERVER_IO_API_KEY"
+
+
+def test_hermes_guide_is_registered_and_renders_yaml(api):
+    hermes = docs.get_integration("hermes")
+
+    assert hermes is not None
+    assert hermes.config_format == "yaml"
+    assert hermes.config_json.startswith("mcp_servers:")
+    assert "mcpServers" not in hermes.config_json  # never the JSON shape
+    # The header alternative renders in YAML too, not the JSON of other pages.
+    assert hermes.show_header_alt
+    assert hermes.header_config_json.startswith("mcp_servers:")
+    assert "Bearer " + docs.PLACEHOLDER_KEY in hermes.header_config_json
+
+    page = api.get("/docs/integrations/hermes")
+    assert page.status_code == 200
+    assert "~/.hermes/config.yaml" in page.text
+    assert "mcp_servers:" in page.text
+    # The prefixed tool names Hermes actually shows the user.
+    assert "mcp__recall_select__store_memory" in page.text
+
+
+def test_hermes_appears_in_the_guide_index(api):
+    index = api.get("/docs/integrations")
+
+    assert index.status_code == 200
+    assert "Hermes" in index.text
+    assert "/docs/integrations/hermes" in index.text
+
+
+def test_toml_client_refuses_a_header_config():
+    """No verified TOML spelling for headers - fail loudly instead of dropping it."""
+    codex = docs.get_integration("codex")
+
+    with pytest.raises(NotImplementedError):
+        codex.header_config_json
+
+
+def test_agent_instructions_cover_hermes():
+    """The .md an agent fetches must name Hermes's file, YAML syntax and env var."""
+    md = connect._instructions_md("https://recall.select", "KEY123")
+
+    assert "~/.hermes/config.yaml" in md
+    assert docs.mcp_config_yaml("https://recall.select/m/KEY123") in md
+    assert docs.mcp_config_yaml("https://recall.select/mcp", header_key="KEY123") in md
+    assert "MCP_RECALL_SELECT_API_KEY" in md
+    assert "mcp__recall_select__store_memory" in md
+    # A 404 from the header endpoint is auth, not a missing route - say so.
+    assert "404" in md

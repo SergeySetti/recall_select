@@ -28,6 +28,9 @@ def _instructions_md(base_url: str, key: str) -> str:
     path_config = docs.mcp_config_json(mcp_url)
     header_config = docs.mcp_config_json(f"{base_url}/mcp", header_key=key)
     toml_config = docs.mcp_config_toml(mcp_url)
+    yaml_config = docs.mcp_config_yaml(mcp_url)
+    header_yaml_config = docs.mcp_config_yaml(f"{base_url}/mcp", header_key=key)
+    hermes_env = docs.hermes_env_var()
     return f"""# recall.select - agent memory setup
 
 You've been handed a **recall.select** memory link. recall.select gives you
@@ -67,6 +70,18 @@ and scopes every call to your own memory workspace.
   Use `.codex/config.toml` inside a project to scope the memory to it. No
   `bearer_token_env_var` line is needed - the link already carries the
   credential. Restart Codex afterwards.
+- **Hermes** - `~/.hermes/config.yaml`, in **YAML** under the snake_case
+  `mcp_servers` key (a `url` is all it needs; the HTTP transport is inferred):
+
+```yaml
+{yaml_config}
+```
+
+  Merge the entry into an existing `mcp_servers:` section rather than adding a
+  second one, or run `hermes mcp add {docs.SERVER_NAME} --url {mcp_url}`. Hermes
+  prefixes borrowed tools, so `store_memory` appears as
+  `mcp__recall_select__store_memory` (the hyphen in the server name becomes an
+  underscore).
 - **Any other MCP client** - wherever it keeps its MCP server list, in that
   client's own syntax. Full guides: {base_url}/docs/integrations
 
@@ -80,7 +95,20 @@ client at the key-less endpoint and send the key as a header instead:
 {header_config}
 ```
 
-Both forms are equivalent - use whichever your client supports.
+In Hermes's YAML that same alternative is:
+
+```yaml
+{header_yaml_config}
+```
+
+`hermes mcp add {docs.SERVER_NAME} --url {base_url}/mcp --auth header` writes it
+for you and keeps the key in the profile's `.env` as `{hermes_env}`, leaving only
+`${{{hermes_env}}}` in `config.yaml`.
+
+Both forms are equivalent - use whichever your client supports. The key-less
+`/mcp` endpoint answers **404** (`unknown memory link`) when the header is
+missing or the key isn't recognised - that is an authentication failure, not a
+missing endpoint.
 
 Once connected, use the server's memory tools to store new memories, to recall
 relevant ones before answering, and to delete memories that turn out to be wrong

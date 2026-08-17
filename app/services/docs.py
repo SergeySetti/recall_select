@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 
 # The MCP server key used across every client config we emit.
@@ -49,6 +50,33 @@ def mcp_config_toml(url: str) -> str:
     return f'[mcp_servers.{SERVER_NAME}]\nurl = "{url}"'
 
 
+def mcp_config_yaml(url: str, *, header_key: str | None = None) -> str:
+    """The same server entry as YAML, for clients configured that way (Hermes).
+
+    Hermes keeps its servers in ``~/.hermes/config.yaml`` under a snake_case
+    ``mcp_servers`` map (like Codex's TOML) and infers the HTTP transport from
+    the presence of ``url``, so there is no ``type`` field. Derived from
+    :func:`mcp_config` so the server name, URL and header cannot drift from the
+    JSON form.
+    """
+    entry = mcp_config(url, header_key=header_key)["mcpServers"][SERVER_NAME]
+    lines = ["mcp_servers:", f"  {SERVER_NAME}:", f'    url: "{entry["url"]}"']
+    if entry.get("headers"):
+        lines.append("    headers:")
+        lines += [f'      {name}: "{value}"' for name, value in entry["headers"].items()]
+    return "\n".join(lines)
+
+
+def hermes_env_var(server_name: str = SERVER_NAME) -> str:
+    """The env-var name Hermes itself picks when it stores a bearer token.
+
+    ``hermes mcp add ... --auth header`` writes the secret to the active
+    profile's ``.env`` under this name and leaves only a ``${...}`` reference in
+    ``config.yaml``. Mirrors Hermes's own ``_env_key_for_server``.
+    """
+    return f"MCP_{re.sub(r'[^A-Za-z0-9_]', '_', server_name.upper()).strip('_')}_API_KEY"
+
+
 def placeholder_mcp_url(key: str = PLACEHOLDER_KEY) -> str:
     """The MCP server URL with a placeholder key, for public docs.
 
@@ -79,24 +107,32 @@ class Integration:
     related: tuple[tuple[str, str], ...] = ()  # (href, label)
     # Also show the "key in a header, not the URL" alternative on this page.
     show_header_alt: bool = False
-    # Config syntax this client expects: most take JSON, Codex takes TOML.
+    # Config syntax this client expects: most take JSON, Codex TOML, Hermes YAML.
     config_format: str = "json"
+
+    def _render(self, url: str, *, header_key: str | None = None) -> str:
+        """One config block in this client's own syntax.
+
+        Every format comes from the same builders, so a client that wants TOML
+        or YAML still gets the same server name, URL and header as everyone else.
+        """
+        if self.config_format == "toml":
+            if header_key is not None:  # no verified TOML spelling for headers yet
+                raise NotImplementedError("header auth has no TOML form")
+            return mcp_config_toml(url)
+        if self.config_format == "yaml":
+            return mcp_config_yaml(url, header_key=header_key)
+        return mcp_config_json(url, header_key=header_key)
 
     @property
     def config_json(self) -> str:
-        """The primary client config, with the placeholder link.
-
-        Rendered in whichever syntax ``config_format`` names - both come from the
-        same builders, so a client that wants TOML still gets the same server
-        name and URL as everyone else.
-        """
-        url = placeholder_mcp_url()
-        return mcp_config_toml(url) if self.config_format == "toml" else mcp_config_json(url)
+        """The primary client config, with the placeholder link."""
+        return self._render(placeholder_mcp_url())
 
     @property
     def header_config_json(self) -> str:
         """The header-auth alternative config (key-less ``/mcp`` endpoint)."""
-        return mcp_config_json(f"{PUBLIC_BASE_URL}/mcp", header_key=PLACEHOLDER_KEY)
+        return self._render(f"{PUBLIC_BASE_URL}/mcp", header_key=PLACEHOLDER_KEY)
 
 
 # The catalogue. Insertion order is the sidebar order. Add an integration by
@@ -130,6 +166,7 @@ INTEGRATIONS: dict[str, Integration] = {
         ),
         related=(
             ("/docs/integrations/codex", "Codex"),
+            ("/docs/integrations/hermes", "Hermes"),
             ("/docs/integrations/generic-mcp", "Generic MCP client"),
             ("/plans", "Plans & limits"),
         ),
@@ -168,9 +205,62 @@ INTEGRATIONS: dict[str, Integration] = {
         ),
         related=(
             ("/docs/integrations/claude-code", "Claude Code"),
+            ("/docs/integrations/hermes", "Hermes"),
             ("/docs/integrations/generic-mcp", "Generic MCP client"),
         ),
         config_format="toml",
+    ),
+    "hermes": Integration(
+        slug="hermes",
+        name="Hermes",
+        tagline="Give Nous Research's Hermes agent a memory that outlives the chat.",
+        config_filename="~/.hermes/config.yaml",
+        config_note=(
+            "Hermes is configured in YAML, not JSON. Add this block to "
+            "~/.hermes/config.yaml - if the file already has an mcp_servers "
+            "section, add the recall-select entry under it rather than a second "
+            "mcp_servers line."
+        ),
+        steps=(
+            "Open ~/.hermes/config.yaml - create the file if it isn't there yet.",
+            "Add the block below, replacing the placeholder with your own memory "
+            "link. Keep the /m/ link exactly as it is: no .md on the end - that "
+            "suffix returns these instructions instead of the memory server.",
+            "Start Hermes (\"hermes chat\") and ask it what tools it has - it "
+            "should list mcp__recall_select__store_memory, "
+            "mcp__recall_select__recall_memory and "
+            "mcp__recall_select__delete_memory.",
+        ),
+        usage=(
+            "Hermes can now keep what matters between sessions: it saves what you "
+            "ask it to remember and finds it later by meaning, so tomorrow's chat "
+            "starts already knowing what today's decided. Hermes prefixes the "
+            "tools it borrows from a server, so recall.select's store_memory "
+            "shows up as mcp__recall_select__store_memory - same tool, longer name "
+            "(the hyphen in the server name becomes an underscore in the prefix)."
+        ),
+        tips=(
+            "No API key or token is needed on top of the link - the memory link "
+            "already carries the credential.",
+            "Prefer the terminal? \"hermes mcp add recall-select --url "
+            "<your-link>\" writes the same entry for you.",
+            "To keep the secret out of config.yaml entirely, run \"hermes mcp add "
+            "recall-select --url https://recall.select/mcp --auth header\" and "
+            f"paste your link when prompted: Hermes stores it in the profile's "
+            f".env as {hermes_env_var()} and writes only "
+            f"\"Authorization: Bearer ${{{hermes_env_var()}}}\" into config.yaml. "
+            "Any ${VARIABLE} in a header is expanded the same way if you'd rather "
+            "write it by hand.",
+            "config.yaml holds the whole password. Keep the file to yourself "
+            "(chmod 600) and out of any repo you push.",
+        ),
+        related=(
+            ("/docs/integrations/claude-code", "Claude Code"),
+            ("/docs/integrations/generic-mcp", "Generic MCP client"),
+            ("/plans", "Plans & limits"),
+        ),
+        show_header_alt=True,
+        config_format="yaml",
     ),
     "generic-mcp": Integration(
         slug="generic-mcp",
@@ -196,6 +286,7 @@ INTEGRATIONS: dict[str, Integration] = {
         related=(
             ("/docs/integrations/claude-code", "Claude Code"),
             ("/docs/integrations/codex", "Codex"),
+            ("/docs/integrations/hermes", "Hermes"),
             ("/plans", "Plans & limits"),
         ),
         show_header_alt=True,
