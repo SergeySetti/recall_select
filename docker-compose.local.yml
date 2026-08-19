@@ -40,7 +40,7 @@ services:
     # Vector database. Published on the host here (unlike prod) so you can inspect
     # collections directly, e.g. curl http://localhost:6333/collections.
     qdrant:
-        image: qdrant/qdrant:v1.12.4
+        image: qdrant/qdrant:v1.19
         container_name: recall-select-qdrant
         restart: unless-stopped
         ports:

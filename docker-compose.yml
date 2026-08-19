@@ -73,7 +73,7 @@ services:
     # qdrant.recall.select - protected by the API key below (the dashboard has no
     # auth of its own). Data persisted in a named volume so it survives restarts.
     qdrant:
-        image: qdrant/qdrant:v1.12.4
+        image: qdrant/qdrant:v1.19
         container_name: recall-select-qdrant
         restart: unless-stopped
         environment:

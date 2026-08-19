@@ -17,7 +17,7 @@ dependencies = [
     # the 2.x line moved `mcp.server.fastmcp`, so an unpinned rebuild imports
     # nothing and the app fails at startup (app/mcp_server.py).
     "mcp>=1.28,<2",
-    "qdrant-client>=1.18",
+    "qdrant-client>=1.19.0",
     "pymongo>=4.6",
     "injector>=0.24.0",
     "authlib>=1.7",          # Google OAuth (OpenID Connect) client
