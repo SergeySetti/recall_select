@@ -73,7 +73,12 @@ services:
     # qdrant.recall.select - protected by the API key below (the dashboard has no
     # auth of its own). Data persisted in a named volume so it survives restarts.
     qdrant:
-        image: qdrant/qdrant:v1.19
+        # Pinned back from v1.19: it panics on this volume's data, which was
+        # written by 1.12.x ("unknown variant `on_disk`" in segment.json - the
+        # storage-type names changed since). Qdrant expects one-minor-at-a-time
+        # upgrades, so 1.12 -> 1.19 has to be stepped (or dumped and restored
+        # via snapshots). See docs/specs/changelog.md.
+        image: qdrant/qdrant:v1.12.4
         container_name: recall-select-qdrant
         restart: unless-stopped
         environment:
