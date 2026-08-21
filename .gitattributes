@@ -1,3 +1,6 @@
+# Everything is LF in the repo and in the working copy. CRLF is fatal in the
+# deploy scripts: _server_deploy.sh is piped over SSH and run by bash on the
+# server, where `set -euo pipefail` dies with "pipefail: invalid option name".
 * text=auto eol=lf
 *.sh text eol=lf
 Dockerfile text eol=lf
