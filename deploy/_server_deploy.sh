@@ -110,10 +110,25 @@ if ! docker compose up -d --remove-orphans; then
   docker compose up -d --remove-orphans || true
 fi
 
-if web_is_current; then
-  echo "    Web container is running the image just built."
+# The web container can be perfectly healthy while the thing it stores memories
+# in is crash-looping - which is exactly how a Qdrant upgrade once shipped as a
+# green deploy while every memory call was failing. Check the whole stack.
+qdrant_is_up() {
+  local state
+  for _ in $(seq 1 15); do
+    state=$(docker inspect -f '{{.State.Status}}' recall-select-qdrant 2>/dev/null || true)
+    [ "$state" = "running" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+if web_is_current && qdrant_is_up; then
+  echo "    Web container is running the image just built; Qdrant is up."
 else
-  echo "!!  recall-select-web is NOT running the freshly built image - deploy failed."
+  echo "!!  The stack did not converge - web is not on the freshly built image,"
+  echo "!!  or Qdrant is not running. Deploy failed."
+  docker logs --tail 20 recall-select-qdrant 2>&1 | tail -20
   docker compose ps
   exit 1
 fi

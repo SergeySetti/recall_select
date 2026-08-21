@@ -36,6 +36,28 @@ This deliberately moves a boundary the code used to state in three places ("the
 owner sees the shape of an account, not its contents"). Those docstrings, the
 user page's footer note, and the README section now say what is actually true.
 
+### Qdrant v1.19 rolled back; the deploy now checks the whole stack
+
+Shipping the memory viewer also shipped 68867e1's Qdrant bump (committed two
+days earlier, never deployed). v1.19 crash-looped on this volume:
+``Failed to deserialize .../segment.json: unknown variant `on_disk`, expected
+`mmap` or `in_ram_mmap``` - the segments were written by 1.12.x, whose storage
+type names 1.19 no longer knows. Qdrant expects one minor at a time; this jump
+skipped seven, so nothing migrated the on-disk format. Every memory call failed
+while it looped.
+
+- Volume tarred to `/home/claude-agent/backups/qdrant_storage_pre_1.19_*.tgz`
+  (9.9M) before touching anything, image pinned back to v1.12.4, service
+  restored. `qdrant-client` stays at 1.19 - it only warns against an older
+  server, and store/scroll/count were verified working across that gap.
+- **The deploy called that a success.** It checked the web container and
+  nothing else, so a healthy app in front of a dead vector store read as green.
+  `_server_deploy.sh` now also requires `recall-select-qdrant` to be running,
+  and prints its last 20 log lines when the stack doesn't converge.
+
+The upgrade is still wanted. It needs a stepped path (1.12 -> 1.13 -> … ) or a
+snapshot dump-and-restore, on a copy of the volume, not a one-line bump.
+
 ---
 
 ## 2026-08-17 (later)
