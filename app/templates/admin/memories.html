@@ -1,0 +1,84 @@
+{% extends "admin/_base.html" %}
+{% block title %}Memories - {{ project.name or project.id }}{% endblock %}
+
+{% block content %}
+<p class="mb-2">
+  <a href="/admin/users/{{ user.id }}" class="small">&larr; {{ user.email or user.id }}</a>
+</p>
+
+<h1 class="h4 mb-1">{{ project.name or "(unnamed project)" }}</h1>
+<p class="text-muted-beige small">
+  <span class="rs-mono">{{ project.id }}</span>
+  {% if project.is_default %} - default project{% endif %}
+  {% if collection %} - <span class="rs-mono">{{ collection }}</span>{% endif %}
+</p>
+
+{% if error %}
+<div class="rs-card p-3 mb-4">
+  <div class="rs-accent">{{ error }}</div>
+  <div class="text-muted-beige small mt-1">
+    The account page still works - it reads the registry, not the vector store.
+  </div>
+</div>
+{% else %}
+
+<p class="text-muted-beige small mb-3">
+  {{ total }} memor{{ "y" if total == 1 else "ies" }} stored.
+  {% if rows %}
+    Showing {{ offset + 1 }}-{{ offset + rows|length }}, newest first.
+  {% endif %}
+  {% if truncated %}
+    <span class="rs-accent">Only the first {{ scanned }} were read.</span>
+  {% endif %}
+</p>
+
+{% if rows %}
+<div class="mb-3">
+  {% for memory in rows %}
+  <div class="rs-card p-3 mb-2">
+    <div class="d-flex justify-content-between align-items-start gap-3">
+      <div class="text-muted-beige small">
+        {{ memory.stored_at[:16].replace("T", " ") if memory.stored_at else "no timestamp" }}
+      </div>
+      <div class="rs-mono text-muted-beige" style="font-size: .7rem;">{{ memory.id }}</div>
+    </div>
+    {# The memory itself. Users write prose with newlines; keep them. #}
+    <div class="mt-2" style="white-space: pre-wrap;">{{ memory.text }}</div>
+    {% if memory.metadata %}
+    <div class="text-muted-beige small mt-2">
+      {% for key, value in memory.metadata.items() %}
+      <span class="me-3"><span class="rs-mono">{{ key }}</span>: {{ value }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if memory.semantics %}
+    <details class="mt-2">
+      <summary class="text-muted-beige small">Semantic layer</summary>
+      <pre class="rs-mono small text-muted-beige mt-2 mb-0" style="white-space: pre-wrap;">{{ memory.semantics }}</pre>
+    </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="d-flex gap-3 mb-4">
+  {% if has_prev %}
+  <a href="/admin/users/{{ user.id }}/projects/{{ project.id }}/memories?offset={{ offset - limit if offset > limit else 0 }}">&larr; Newer</a>
+  {% endif %}
+  {% if has_next %}
+  <a href="/admin/users/{{ user.id }}/projects/{{ project.id }}/memories?offset={{ offset + limit }}">Older &rarr;</a>
+  {% endif %}
+</div>
+{% else %}
+<div class="rs-card p-3 text-muted-beige mb-4">
+  Nothing stored in this project yet.
+</div>
+{% endif %}
+
+{% endif %}
+
+<p class="text-muted-beige small">
+  Read-only: this page cannot edit or delete a memory. What a user stored is
+  their private content - open it to answer a support question, not to browse.
+</p>
+{% endblock %}

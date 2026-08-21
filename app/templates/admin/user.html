@@ -57,7 +57,10 @@
       <tr>
         <td>{{ project.name }}</td>
         <td class="rs-mono small text-muted-beige">{{ project.id }}</td>
-        <td class="text-end">{{ project.points_count }}</td>
+        {# The count is the way in to the contents - see admin/memories.html. #}
+        <td class="text-end">
+          <a href="/admin/users/{{ user.id }}/projects/{{ project.id }}/memories">{{ project.points_count }}</a>
+        </td>
         <td>{{ "yes" if project.is_default else "" }}</td>
       </tr>
       {% endfor %}
@@ -122,6 +125,6 @@
 
 <p class="text-muted-beige small">
   Joined {{ user.created_at.strftime("%Y-%m-%d %H:%M") if user.created_at else "-" }}.
-  Memory text is not shown here - this view reports the shape of the account, not its contents.
+  Follow a project's memory count to read what it holds.
 </p>
 {% endblock %}

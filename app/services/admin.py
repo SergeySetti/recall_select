@@ -12,10 +12,14 @@ environment. **Unset means the whole admin area does not exist** (the routes
 read from the environment on every call rather than at import so tests and a
 restarted process always see the current value.
 
-What is deliberately *not* here: any way to mutate a user's data, and any way to
-read a memory's text or an API key's secret. The owner can see the shape of an
-account (counts, plan, timestamps, masked keys) - not its contents. Widening
-that is a product decision, not an implementation detail.
+What is deliberately *not* here: any way to **mutate** a user's data, and any way
+to read an API key's secret (there is nothing to read - keys are stored hashed).
+
+Memory *text* is readable, via :func:`user_memories`. That is a deliberate
+widening of the earlier "shape, not contents" rule: supporting a user who says
+"it didn't save anything" is impossible without seeing what their store actually
+holds. It stays read-only, it is reachable only with ``ADMIN_SECRET``, and it is
+scoped to one (user, project) collection per request - never a cross-user dump.
 
 Pure I/O - ``db`` is injected so this is testable without live backends.
 """
@@ -27,9 +31,11 @@ import secrets
 import time
 
 from pymongo.database import Database
+from qdrant_client import QdrantClient
 
-from app.services import account, api_keys, billing
+from app.services import account, api_keys, billing, collections, projects, qdrant_store
 from app.services.mongo import get_db
+from app.services.vector_semantics import SEMANTICS_KEY
 
 # How long an unlocked admin session stays unlocked, in seconds. Short by
 # design: this is a standing key to every account, so an unattended browser
@@ -207,4 +213,101 @@ def user_space(user_id: str, *, db: Database | None = None) -> dict | None:
         "summary": account.overview(user, db=db),
         "grants": billing.list_grants(user_id, db=db),
         "last_link_use": max(used) if used else None,
+    }
+
+
+# One page of the owner's memory viewer. Fifty is about a screen of scanning
+# without turning the page into a wall of text.
+MEMORY_PAGE_SIZE = 50
+
+# Ceiling on how many points one request pulls out of Qdrant. Scroll has no
+# sort, so ordering by recency means reading the collection and sorting here;
+# this bounds that work for a store far larger than anyone will page through.
+# `scanned` / `truncated` in the result say when the cap actually bit.
+MEMORY_SCAN_LIMIT = 2000
+
+
+def _memory_row(point) -> dict:
+    """One stored point as the viewer shows it.
+
+    Splits the payload three ways: the memory ``text``, the reserved
+    ``_semantics`` namespace (deixis anchors written at store time, plus whatever
+    the client later declared), and everything else - metadata the client sent
+    with the memory.
+    """
+    payload = dict(point.payload or {})
+    semantics = payload.pop(SEMANTICS_KEY, None) or {}
+    text = payload.pop("text", "")
+    return {
+        "id": str(point.id),
+        "text": text,
+        "stored_at": semantics.get("stored_at"),
+        # `owner` is this user by construction; showing it back adds nothing.
+        "semantics": {k: v for k, v in semantics.items() if k not in ("owner", "stored_at")},
+        "metadata": payload,
+    }
+
+
+def user_memories(
+    user_id: str,
+    project_id: str,
+    *,
+    offset: int = 0,
+    limit: int = MEMORY_PAGE_SIZE,
+    db: Database | None = None,
+    qdrant: QdrantClient | None = None,
+) -> dict | None:
+    """One project's stored memories, newest first - read-only.
+
+    Returns None when the user is unknown, the project is unknown, or the project
+    belongs to somebody else: the viewer is addressed by two ids from the URL, so
+    it must confirm they belong together rather than trusting the pair. A
+    (user, project) maps to exactly one collection (``rs_{user}_{project}``), so
+    there is no way to widen this to a second user's data by editing the path.
+
+    A never-written project has no collection yet; that reads as empty, not as an
+    error - it is the normal state of a project nobody has stored into.
+    """
+    db = db if db is not None else get_db()
+    user = db.users.find_one({"_id": user_id})
+    if user is None:
+        return None
+
+    project = projects.get_project(project_id, db=db)
+    if project is None or project.get("user_id") != user_id:
+        return None
+
+    name = collections.collection_name(user_id, project_id)
+    points = qdrant_store.scroll_points(
+        name, with_vectors=False, limit=MEMORY_SCAN_LIMIT, client=qdrant
+    )
+    # Qdrant scrolls in id order, which is arbitrary here (ids are uuid4). Sort
+    # by when it was stored, newest first; a memory written before the
+    # `_semantics` anchors existed has no timestamp and sorts last.
+    rows = sorted(
+        (_memory_row(point) for point in points),
+        key=lambda row: row["stored_at"] or "",
+        reverse=True,
+    )
+
+    offset = max(0, offset)
+    registered = collections.get_collection(user_id, project_id, db=db) or {}
+    return {
+        "user": {"id": user_id, "email": user.get("email"), "name": user.get("name")},
+        "project": {
+            "id": project_id,
+            "name": project.get("name"),
+            "is_default": bool(project.get("is_default")),
+        },
+        "collection": name,
+        # What the registry believes the collection holds, which is also the
+        # number the user sees on their own account page.
+        "total": registered.get("points_count", len(rows)),
+        "scanned": len(rows),
+        "truncated": len(rows) >= MEMORY_SCAN_LIMIT,
+        "rows": rows[offset : offset + limit],
+        "offset": offset,
+        "limit": limit,
+        "has_prev": offset > 0,
+        "has_next": offset + limit < len(rows),
     }

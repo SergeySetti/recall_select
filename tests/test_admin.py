@@ -7,6 +7,7 @@ dependency overridden, so routing, the secret gate and the session all run.
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -195,3 +196,183 @@ def test_payments_page_needs_the_unlock(client, enabled):
 
     assert response.status_code == 303
     assert response.headers["location"] == "/admin"
+
+
+# --- the memory viewer -----------------------------------------------------
+# The one place the area reads a user's *contents* rather than the shape of
+# their account. Qdrant is faked: the viewer only scrolls.
+
+
+class FakeScrollQdrant:
+    """Minimal stand-in: holds points per collection and scrolls them back.
+
+    Scrolls in insertion order deliberately - the viewer must not rely on the
+    store handing memories back newest-first, because Qdrant doesn't.
+    """
+
+    def __init__(self, points: dict[str, list] | None = None) -> None:
+        self.data = points or {}
+
+    def collection_exists(self, collection_name: str) -> bool:
+        return collection_name in self.data
+
+    def scroll(self, collection_name, limit, offset, with_payload, with_vectors):
+        points = self.data.get(collection_name, [])
+        start = offset or 0
+        batch = points[start : start + limit]
+        next_offset = start + limit if start + limit < len(points) else None
+        return batch, next_offset
+
+
+def _point(point_id: str, text: str, stored_at: str | None, **metadata):
+    payload = {"text": text, **metadata}
+    if stored_at is not None:
+        payload["_semantics"] = {"owner": "u1", "stored_at": stored_at}
+    return SimpleNamespace(id=point_id, payload=payload, vector=None)
+
+
+@pytest.fixture
+def stored(mongo_db):
+    """A user with one project holding three memories, stored out of order."""
+    user = users.add_user("olga@example.com", db=mongo_db)
+    project = projects.add_project(user["_id"], "home", db=mongo_db)
+    collections.register_collection(user["_id"], project["_id"], db=mongo_db)
+    collections.set_points_count(user["_id"], project["_id"], 3, db=mongo_db)
+    name = collections.collection_name(user["_id"], project["_id"])
+    qdrant = FakeScrollQdrant(
+        {
+            name: [
+                _point("p-mid", "bought flour", "2026-08-15T10:00:00+00:00", tag="shopping"),
+                _point("p-new", "tiramisu recipe", "2026-08-16T09:00:00+00:00"),
+                _point("p-old", "dentist at four", "2026-08-14T08:00:00+00:00"),
+            ]
+        }
+    )
+    return SimpleNamespace(user=user, project=project, qdrant=qdrant, collection=name)
+
+
+def test_user_memories_returns_contents_newest_first(stored, mongo_db):
+    view = admin.user_memories(
+        stored.user["_id"], stored.project["_id"], db=mongo_db, qdrant=stored.qdrant
+    )
+
+    assert [row["id"] for row in view["rows"]] == ["p-new", "p-mid", "p-old"]
+    assert view["rows"][0]["text"] == "tiramisu recipe"
+    assert view["collection"] == stored.collection
+    assert view["total"] == 3  # the registry's number, the one the user sees
+    assert view["truncated"] is False
+
+
+def test_user_memories_splits_payload_into_text_metadata_and_semantics(stored, mongo_db):
+    view = admin.user_memories(
+        stored.user["_id"], stored.project["_id"], db=mongo_db, qdrant=stored.qdrant
+    )
+    row = next(r for r in view["rows"] if r["id"] == "p-mid")
+
+    assert row["text"] == "bought flour"
+    assert row["metadata"] == {"tag": "shopping"}  # client metadata, not the text
+    assert "text" not in row["metadata"] and "_semantics" not in row["metadata"]
+    # owner/stored_at are the anchors, surfaced separately - not as "semantics".
+    assert row["stored_at"] == "2026-08-15T10:00:00+00:00"
+    assert row["semantics"] == {}
+
+
+def test_user_memories_refuses_a_project_belonging_to_someone_else(stored, mongo_db):
+    """The two ids come from the URL; the pair must be checked, not trusted."""
+    intruder = users.add_user("someone.else@example.com", db=mongo_db)
+
+    assert admin.user_memories(
+        intruder["_id"], stored.project["_id"], db=mongo_db, qdrant=stored.qdrant
+    ) is None
+    assert admin.user_memories(
+        stored.user["_id"], "no-such-project", db=mongo_db, qdrant=stored.qdrant
+    ) is None
+    assert admin.user_memories(
+        "no-such-user", stored.project["_id"], db=mongo_db, qdrant=stored.qdrant
+    ) is None
+
+
+def test_user_memories_of_a_never_written_project_is_empty_not_an_error(mongo_db):
+    """A project nobody stored into has no collection yet - that is normal."""
+    user = users.add_user("fresh@example.com", db=mongo_db)
+    project = projects.add_project(user["_id"], "empty", db=mongo_db)
+
+    view = admin.user_memories(
+        user["_id"], project["_id"], db=mongo_db, qdrant=FakeScrollQdrant()
+    )
+
+    assert view is not None
+    assert view["rows"] == [] and view["scanned"] == 0
+
+
+def test_user_memories_paginates(stored, mongo_db):
+    first = admin.user_memories(
+        stored.user["_id"], stored.project["_id"], limit=2, db=mongo_db, qdrant=stored.qdrant
+    )
+    second = admin.user_memories(
+        stored.user["_id"], stored.project["_id"], offset=2, limit=2,
+        db=mongo_db, qdrant=stored.qdrant,
+    )
+
+    assert [row["id"] for row in first["rows"]] == ["p-new", "p-mid"]
+    assert first["has_prev"] is False and first["has_next"] is True
+    assert [row["id"] for row in second["rows"]] == ["p-old"]
+    assert second["has_prev"] is True and second["has_next"] is False
+
+
+def test_memories_page_renders_the_text(unlocked, stored, mongo_db):
+    app.dependency_overrides[deps.get_qdrant] = lambda: stored.qdrant
+    try:
+        page = unlocked.get(
+            f"/admin/users/{stored.user['_id']}/projects/{stored.project['_id']}/memories"
+        )
+    finally:
+        app.dependency_overrides.pop(deps.get_qdrant, None)
+
+    assert page.status_code == 200
+    assert "tiramisu recipe" in page.text
+    assert "dentist at four" in page.text
+    assert stored.collection in page.text
+
+
+def test_memories_page_needs_the_unlock(client, enabled, stored):
+    app.dependency_overrides[deps.get_qdrant] = lambda: stored.qdrant
+    try:
+        response = client.get(
+            f"/admin/users/{stored.user['_id']}/projects/{stored.project['_id']}/memories",
+            follow_redirects=False,
+        )
+    finally:
+        app.dependency_overrides.pop(deps.get_qdrant, None)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin"
+
+
+def test_memories_page_reports_an_unreachable_store_instead_of_500(unlocked, stored):
+    """The owner is usually here because something looks wrong; "the vector
+    store is down" is an answer, not a crash."""
+    class DeadQdrant:
+        def collection_exists(self, collection_name):
+            raise RuntimeError("connection refused")
+
+    app.dependency_overrides[deps.get_qdrant] = lambda: DeadQdrant()
+    try:
+        page = unlocked.get(
+            f"/admin/users/{stored.user['_id']}/projects/{stored.project['_id']}/memories"
+        )
+    finally:
+        app.dependency_overrides.pop(deps.get_qdrant, None)
+
+    assert page.status_code == 503
+    assert "Memory store unreachable" in page.text
+
+
+def test_unknown_project_is_404(unlocked, stored):
+    app.dependency_overrides[deps.get_qdrant] = lambda: stored.qdrant
+    try:
+        page = unlocked.get(f"/admin/users/{stored.user['_id']}/projects/nope/memories")
+    finally:
+        app.dependency_overrides.pop(deps.get_qdrant, None)
+
+    assert page.status_code == 404

@@ -5,6 +5,39 @@ Notable changes, newest first. Complements the point-in-time snapshots
 
 ---
 
+## 2026-08-21
+
+### The admin area can read memory contents, per project
+
+Support had a hole: a user writes "it isn't saving anything" and the owner could
+only see counts. `/admin` reported the *shape* of an account by design - and the
+one number it showed came from the registry, so a user whose writes never landed
+and a registry that was simply stale looked identical from here.
+
+- **New view.** `/admin/users/{user}/projects/{project}/memories` renders what a
+  project actually holds: each memory's text, when it was stored, the metadata
+  the client sent with it, and (folded away) its `_semantics` layer. Newest
+  first, 50 to a page. The memory count on the user page is the way in.
+- **Ordering costs a scan.** Qdrant's scroll has no sort, so recency means
+  reading the collection and sorting here; `MEMORY_SCAN_LIMIT` (2000) bounds
+  that, and the page says so when the cap bit rather than quietly showing a
+  partial store.
+- **Scoped by construction.** The view is addressed by two ids from the URL, so
+  `user_memories` confirms the project really belongs to that user before
+  resolving `rs_{user}_{project}`; editing the path cannot reach another
+  account's data. Still read-only - nothing here writes, and API keys remain
+  unreadable because they are stored hashed.
+- **A dead vector store is an answer, not a 500.** The rest of `/admin` reads
+  Mongo only and renders with Qdrant down; this page reports "Memory store
+  unreachable" on the page itself, since the owner is usually here precisely
+  because something looks wrong.
+
+This deliberately moves a boundary the code used to state in three places ("the
+owner sees the shape of an account, not its contents"). Those docstrings, the
+user page's footer note, and the README section now say what is actually true.
+
+---
+
 ## 2026-08-17 (later)
 
 ### Trust Caddy's forwarded headers; self-healing container recreate

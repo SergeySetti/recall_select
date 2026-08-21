@@ -204,14 +204,20 @@ what a user sees. Set `ADMIN_SECRET` (generate:
 web container, then open `{PUBLIC_BASE_URL}/admin` and enter the key once per
 session. `/admin/users` lists every account - searchable by email, name, or user
 id - and each row opens that user's plan, usage this period, projects with their
-memory counts, and memory links in masked form.
+memory counts, and memory links in masked form. Following a project's memory
+count opens what that project actually holds: each memory's text, when it was
+stored, the metadata the client sent with it, and its semantic layer, newest
+first and paged. That is the one view of a user's *contents* - it exists because
+"it isn't saving anything" cannot be answered from counts alone.
 
 The boundaries are deliberate: the key is submitted by POST (never a URL
 parameter, so it stays out of history and access logs), repeated wrong guesses
 lock a client out for five minutes, the session re-locks itself after
-`ADMIN_SESSION_HOURS`, and **no route here writes anything or reveals memory
-text or key secrets** - the owner sees the shape of an account, not its
-contents. With `ADMIN_SECRET` unset the area doesn't exist at all.
+`ADMIN_SESSION_HOURS`, and **no route here writes anything or reveals key
+secrets** (keys are stored hashed - there is nothing to reveal). The memory
+viewer reads one `(user, project)` collection per request and checks the pair
+really belongs together, so editing the path cannot widen it into someone
+else's data. With `ADMIN_SECRET` unset the area doesn't exist at all.
 
 ### Auth (Google sign-in)
 

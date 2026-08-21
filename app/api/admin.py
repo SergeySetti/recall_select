@@ -1,8 +1,9 @@
 """The owner's admin area (``/admin``): look at any user's personal space.
 
 Server-rendered, read-only, and gated by one shared secret (``ADMIN_SECRET``,
-see ``app.services.admin``). Three pages: unlock, the user list, and one user's
-account snapshot - the same numbers that user sees at ``/account``.
+see ``app.services.admin``). The pages: unlock, the user list, payments, one
+user's account snapshot - the same numbers that user sees at ``/account`` - and,
+from there, the memories held in any one of that user's projects.
 
 Three deliberate choices about the credential:
 
@@ -12,8 +13,9 @@ Three deliberate choices about the credential:
   browser history, referrers, and the proxy's access log. What lands in the
   session cookie afterwards is a flag and a timestamp, never the secret itself.
 * **It unlocks looking, not acting.** Nothing on these pages writes to a user's
-  account; the owner cannot generate links, delete data, or read memory text or
-  key secrets from here.
+  account; the owner cannot generate links, delete data, or read key secrets
+  from here. Memory *text* is readable - see the memories view below and the
+  note in ``app.services.admin`` on why that boundary moved.
 """
 from __future__ import annotations
 
@@ -24,7 +26,7 @@ from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.api.deps import DbDep
+from app.api.deps import DbDep, QdrantDep
 from app.i18n import t
 from app.services import admin
 
@@ -173,3 +175,49 @@ async def user_page(user_id: str, request: Request, db: DbDep):
     if space is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
     return _page(request, "admin/user.html", space)
+
+
+@router.get("/users/{user_id}/projects/{project_id}/memories", response_class=HTMLResponse)
+async def user_memories_page(
+    user_id: str,
+    project_id: str,
+    request: Request,
+    db: DbDep,
+    qdrant: QdrantDep,
+    offset: int = 0,
+):
+    """What one project actually holds: the memories themselves, newest first.
+
+    The rest of the area reads Mongo only, so it renders with the vector store
+    down; this page is the one that needs Qdrant. A store that cannot be reached
+    is reported on the page rather than as a 500 - the owner is usually here
+    *because* something looks wrong, and "unreachable" is itself the answer.
+    """
+    _require_enabled()
+    if not _is_unlocked(request):
+        return RedirectResponse(url="/admin", status_code=303)
+    try:
+        view = admin.user_memories(user_id, project_id, offset=offset, db=db, qdrant=qdrant)
+    except Exception as exc:  # noqa: BLE001 - any store failure is the same answer here.
+        return _page(
+            request,
+            "admin/memories.html",
+            {
+                "user": {"id": user_id, "email": None, "name": None},
+                "project": {"id": project_id, "name": None, "is_default": False},
+                "collection": None,
+                "total": 0,
+                "scanned": 0,
+                "truncated": False,
+                "rows": [],
+                "offset": 0,
+                "limit": admin.MEMORY_PAGE_SIZE,
+                "has_prev": False,
+                "has_next": False,
+                "error": f"Memory store unreachable: {exc}",
+            },
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    if view is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
+    return _page(request, "admin/memories.html", {**view, "error": None})
